@@ -66,8 +66,8 @@ export default function ScheduledPostsTab() {
   const [cancelledOpen, setCancelledOpen] = useState(false);
   // File upload
   const [selectedFile, setSelectedFile] = useState(null);
-  const [uploadedFileToken, setUploadedFileToken] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [, setUploadedFileToken] = useState(null);
+  const [uploading] = useState(false);
   const fileInputRef = useRef(null);
   // Batch scheduling
   const [batchMode, setBatchMode] = useState(false);

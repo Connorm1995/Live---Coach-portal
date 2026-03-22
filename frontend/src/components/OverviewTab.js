@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LineChart, BarChart, ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceArea,
+  Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import './OverviewTab.css';
 
@@ -353,7 +353,7 @@ function WeeklyFocus({ focus, clientId, onSaved }) {
 
   useEffect(() => {
     setText(focus?.current?.text || '');
-  }, [focus?.current?.text]);
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useCallback(async (value) => {
     setSaving(true);
@@ -369,7 +369,7 @@ function WeeklyFocus({ focus, clientId, onSaved }) {
     } finally {
       setSaving(false);
     }
-  }, [clientId, focus?.current?.weekStart, onSaved]);
+  }, [clientId, focus, onSaved]);
 
   const handleChange = (e) => {
     const val = e.target.value;

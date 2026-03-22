@@ -40,11 +40,6 @@ function ClientManager({ onSelectClient }) {
     fetchClients();
   }, [fetchClients]);
 
-  const openAdd = useCallback(() => {
-    setEditingClient(null);
-    setModalOpen(true);
-  }, []);
-
   const openEdit = useCallback((client) => {
     setEditingClient(client);
     setModalOpen(true);

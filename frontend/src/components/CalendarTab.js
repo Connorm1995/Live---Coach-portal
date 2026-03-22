@@ -144,12 +144,15 @@ function CalendarTab({ clientId }) {
   }, [month]);
 
   // Build day data lookup
-  const dayDataMap = {};
-  if (data?.days) {
-    for (const day of data.days) {
-      dayDataMap[day.date] = day;
+  const dayDataMap = React.useMemo(() => {
+    const map = {};
+    if (data?.days) {
+      for (const day of data.days) {
+        map[day.date] = day;
+      }
     }
-  }
+    return map;
+  }, [data?.days]);
 
   const weeks = buildMonthGrid(year, month);
 

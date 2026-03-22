@@ -62,10 +62,6 @@ function isVideo(contentType) {
   return contentType && contentType.startsWith('video/');
 }
 
-function isPdf(contentType) {
-  return contentType && contentType === 'application/pdf';
-}
-
 // Render attachment based on content type
 function AttachmentRenderer({ attachment }) {
   if (!attachment) return null;
