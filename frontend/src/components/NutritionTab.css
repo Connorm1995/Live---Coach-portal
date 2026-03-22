@@ -1,0 +1,715 @@
+/* ══════════════════════════════════════
+   Nutrition Tab - Premium Coaching View
+   ══════════════════════════════════════ */
+.nt {
+  --nt-calories: #e87040;
+  --nt-protein: #5b8def;
+  --nt-fats: #f0b429;
+  --nt-carbs: #58c78f;
+  --nt-fibre: #a67ec8;
+  --nt-satfat: #d4736e;
+
+  padding: var(--space-5) 0 var(--space-9);
+  max-width: 880px;
+}
+
+.nt__loading,
+.nt__error {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-slate);
+  padding: var(--space-9) 0;
+  text-align: center;
+}
+
+.nt__error { color: var(--color-red); }
+
+.nt__section { margin-bottom: var(--space-7); }
+
+.nt__section-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-black);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin-bottom: var(--space-4);
+}
+
+.nt__period {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--color-slate);
+  margin-bottom: var(--space-5);
+}
+
+/* ── MFP Button ── */
+.nt__mfp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-white);
+  background: var(--color-teal);
+  border: none;
+  border-radius: 10px;
+  padding: 12px 22px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+
+.nt__mfp-btn:hover { background: var(--color-teal-bright); }
+
+.nt__mfp-btn--disabled {
+  background: var(--color-border);
+  color: var(--color-slate);
+  cursor: not-allowed;
+}
+
+.nt__mfp-btn--disabled:hover { background: var(--color-border); }
+.nt__mfp-icon { flex-shrink: 0; }
+
+/* ══════════════════════════════════════
+   Hero: Calorie Arc + Macro Bars
+   ══════════════════════════════════════ */
+
+.nt__hero {
+  display: flex;
+  gap: var(--space-7);
+  align-items: flex-start;
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: var(--space-6);
+}
+
+/* ── Calorie Arc ── */
+.nt__arc-wrap {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  flex-shrink: 0;
+}
+
+.nt__arc-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.nt__arc-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -40%);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.nt__arc-actual {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--color-black);
+  line-height: 1;
+}
+
+.nt__arc-unit {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-slate);
+  margin-top: 2px;
+}
+
+.nt__arc-goal {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-slate);
+  margin-top: var(--space-1);
+}
+
+.nt__arc-goal-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--color-slate);
+  margin-top: 2px;
+}
+
+.nt__arc-diff {
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: -8px;
+}
+
+/* ── Macro Progress Bars ── */
+.nt__bars {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+}
+
+.nt__bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nt__bar-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.nt__bar-label {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-black);
+}
+
+.nt__bar-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt__bar-actual {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-black);
+}
+
+.nt__bar-sep {
+  font-size: 13px;
+  color: var(--color-slate);
+}
+
+.nt__bar-goal {
+  font-size: 13px;
+  color: var(--color-slate);
+}
+
+.nt__bar-diff {
+  font-size: 13px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.nt__bar-diff--green { color: var(--color-green); }
+.nt__bar-diff--amber { color: var(--color-amber); }
+.nt__bar-diff--red { color: var(--color-red); }
+
+/* Track */
+.nt__bar-track {
+  position: relative;
+  height: 10px;
+  background: var(--color-off-white);
+  border-radius: 5px;
+  overflow: visible;
+}
+
+.nt__bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 400ms ease;
+}
+
+.nt__bar-over {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  border-radius: 0 5px 5px 0;
+}
+
+.nt__bar-marker {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 16px;
+  background: var(--color-slate);
+  opacity: 0.3;
+  transform: translateX(-1px);
+}
+
+/* ── Fibre row ── */
+.nt__fibre-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.nt__fibre-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nt-fibre);
+  flex-shrink: 0;
+}
+
+.nt__fibre-label {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-black);
+}
+
+.nt__fibre-val {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-black);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt__fibre-sep {
+  font-size: 12px;
+  color: var(--color-slate);
+}
+
+.nt__fibre-goal {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--color-slate);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt__fibre-badge {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.nt__fibre-badge--green {
+  color: var(--color-green);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.nt__fibre-badge--red {
+  color: var(--color-red);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ── Tracking note ── */
+.nt__tracking-note {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--color-teal);
+  margin-top: var(--space-4);
+  line-height: 1.5;
+}
+
+.nt__tracking-note--good { color: var(--color-teal); }
+
+.nt__empty-state {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-slate);
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+  background: var(--color-off-white);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+/* ══════════════════════════════════════
+   Saturated Fat Gauge
+   ══════════════════════════════════════ */
+
+.nt__satfat {
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: var(--space-5) var(--space-6);
+}
+
+.nt__satfat-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-black);
+  margin-bottom: var(--space-3);
+}
+
+.nt__satfat-stats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.nt__satfat-grams {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-black);
+}
+
+.nt__satfat-sep {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--color-slate);
+}
+
+.nt__satfat-pct {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  margin-left: var(--space-2);
+}
+
+.nt__satfat-pct--green { color: var(--color-green); }
+.nt__satfat-pct--amber { color: var(--color-amber); }
+
+/* Gauge track */
+.nt__gauge {
+  position: relative;
+  height: 14px;
+  border-radius: 7px;
+  overflow: visible;
+  margin-bottom: var(--space-7);
+  display: flex;
+}
+
+.nt__gauge-zone {
+  height: 100%;
+  position: absolute;
+  top: 0;
+}
+
+.nt__gauge-zone--green {
+  background: rgba(34, 197, 94, 0.15);
+  border-radius: 7px 0 0 7px;
+}
+
+.nt__gauge-zone--amber {
+  background: rgba(245, 158, 11, 0.15);
+  border-radius: 0 7px 7px 0;
+}
+
+/* Threshold lines */
+.nt__gauge-line {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 22px;
+  background: var(--color-slate);
+  opacity: 0.25;
+  transform: translateX(-1px);
+}
+
+.nt__gauge-line-label {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-slate);
+  text-align: center;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+/* Client marker */
+.nt__gauge-marker {
+  position: absolute;
+  top: -6px;
+  width: 14px;
+  height: 26px;
+  border-radius: 7px;
+  transform: translateX(-7px);
+  z-index: 2;
+}
+
+.nt__gauge-marker--green { background: var(--color-green); }
+.nt__gauge-marker--amber { background: var(--color-amber); }
+
+.nt__gauge-marker-val {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-black);
+  white-space: nowrap;
+}
+
+.nt__satfat-status {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nt__satfat-status--green { color: var(--color-green); }
+.nt__satfat-status--amber { color: var(--color-amber); }
+
+/* ══════════════════════════════════════
+   Daily Breakdown
+   ══════════════════════════════════════ */
+
+.nt__stack-legend {
+  display: flex;
+  gap: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.nt__stack-leg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-slate);
+}
+
+.nt__stack-leg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.nt__week-group { margin-bottom: var(--space-6); }
+
+.nt__week-label {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-black);
+  margin-bottom: var(--space-3);
+}
+
+.nt__day-list {
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.nt__day {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.nt__day:last-child { border-bottom: none; }
+.nt__day--muted { background: rgba(85, 94, 98, 0.02); }
+.nt__day--empty { background: rgba(85, 94, 98, 0.02); }
+
+/* ── Day row ── */
+.nt__day-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+  text-align: left;
+  font-family: var(--font-body);
+  color: var(--color-black);
+  background: none;
+  border: none;
+}
+
+.nt__day-row:hover { background: var(--color-off-white); }
+
+.nt__day-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nt__day-dot--tracked { background: var(--color-green); }
+.nt__day-dot--low { background: var(--color-amber); }
+.nt__day-dot--none { background: var(--color-border); }
+
+.nt__day-name {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 32px;
+}
+
+.nt__day-date {
+  font-size: 12px;
+  color: var(--color-slate);
+  min-width: 86px;
+}
+
+.nt__day-cal {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-black);
+  font-variant-numeric: tabular-nums;
+  min-width: 50px;
+  text-align: right;
+}
+
+.nt__day-cal--muted { opacity: 0.45; }
+
+.nt__day-cal-unit {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--color-slate);
+  margin-right: var(--space-2);
+}
+
+/* ── Stacked macro bar ── */
+.nt__day-bar-wrap {
+  flex: 1;
+  min-width: 100px;
+}
+
+.nt__stack {
+  display: flex;
+  height: 24px;
+  border-radius: 6px;
+  overflow: visible;
+  background: var(--color-off-white);
+  position: relative;
+}
+
+.nt__stack--muted { opacity: 0.35; }
+.nt__stack--empty { height: 24px; background: var(--color-off-white); border-radius: 6px; }
+
+.nt__stack-seg {
+  height: 100%;
+  transition: width 400ms ease;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
+.nt__stack-seg:first-child { border-radius: 6px 0 0 6px; }
+.nt__stack-seg:last-child { border-radius: 0 6px 6px 0; }
+
+/* Labels on segments */
+.nt__stack-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-white);
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.nt__stack-label--outside {
+  color: var(--color-slate);
+  text-shadow: none;
+  position: absolute;
+  left: calc(100% + 4px);
+  font-size: 10px;
+}
+
+/* Partial badge */
+.nt__day-partial {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-amber);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.nt__day-nodata {
+  font-size: 13px;
+  color: var(--color-slate);
+  margin-left: auto;
+}
+
+/* MFP day link */
+.nt__mfp-day {
+  color: var(--color-slate);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.nt__mfp-day:hover {
+  color: var(--color-teal);
+  background: rgba(35, 184, 184, 0.08);
+}
+
+/* Chevron */
+.nt__day-chev {
+  color: var(--color-slate);
+  transition: transform 200ms ease;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.nt__day-chev--open { transform: rotate(180deg); }
+
+/* ── Day detail (expanded) ── */
+.nt__day-detail {
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  padding-left: calc(var(--space-5) + 10px + var(--space-3));
+}
+
+.nt__detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.nt__detail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-off-white);
+  border-radius: 8px;
+}
+
+.nt__detail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nt__detail-label {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-slate);
+}
+
+.nt__detail-value {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-black);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}

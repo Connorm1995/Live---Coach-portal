@@ -1,0 +1,16 @@
+{
+  "name": "coach-portal",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "cd frontend && npm install && cd ../backend && npm install",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && node server.js",
+    "dev:frontend": "cd frontend && npm start",
+    "dev:backend": "cd backend && npm start",
+    "migrate": "cd backend && node db/migrate.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

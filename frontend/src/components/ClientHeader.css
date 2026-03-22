@@ -1,0 +1,134 @@
+.client-header {
+  margin-top: 56px; /* below fixed nav */
+  min-height: 116px;
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-6) var(--space-7);
+}
+
+.client-header__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.client-header__hub-trigger {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-slate);
+  border-radius: 8px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.client-header__hub-trigger:hover {
+  background: var(--color-off-white);
+  color: var(--color-black);
+}
+
+.client-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.client-header__name {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--color-black);
+}
+
+.client-header__meta {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-slate);
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.client-header__phase-badge {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 4px 10px;
+  border-radius: 20px;
+  line-height: 1;
+}
+
+.client-header__right {
+  display: flex;
+  align-items: center;
+}
+
+.client-header__loom-trigger {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-teal);
+  border-radius: 8px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.client-header__loom-trigger:hover {
+  background: var(--color-off-white);
+  color: var(--color-teal-bright);
+}
+
+.client-header__loom-trigger:active {
+  transform: scale(0.97);
+  transition: transform 80ms ease;
+}
+
+/* ── Custom tooltips ── */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-white);
+  background: var(--color-black);
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 50;
+}
+
+/* Right-side tooltip anchors to the right edge */
+.client-header__right [data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+}
