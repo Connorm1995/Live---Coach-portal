@@ -88,6 +88,8 @@ function App() {
     if (defaultTab) setClientTab(defaultTab);
     setHubOpen(false);
     setActiveTab('client');
+    // Warm the cache for this client's Overview data in the background
+    fetch(`${API_BASE}/api/clients/${clientId}/prefetch`, { method: 'POST' }).catch(() => {});
   }, []);
 
   // Refresh client detail (e.g. after sending Loom feedback)

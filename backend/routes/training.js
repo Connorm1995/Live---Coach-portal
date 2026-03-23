@@ -1,35 +1,31 @@
 const express = require('express');
 const pool = require('../db/pool');
+const { trainerizePost: tzPost } = require('../lib/trainerize');
+const store = require('../lib/trainerize-store');
 
 const router = express.Router();
 const COACH_ID = 1;
 
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
+let _timedOutSections = [];
 async function trainerizePost(endpoint, body) {
-  try {
-    const res = await fetch(`${TRAINERIZE_API}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: TRAINERIZE_AUTH,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      console.warn(`[Training] Trainerize ${endpoint} returned ${res.status}`);
-      return null;
-    }
-    return res.json();
-  } catch (err) {
-    console.error(`[Training] Trainerize ${endpoint} error:`, err.message);
-    return null;
-  }
+  const result = await tzPost(endpoint, body, { label: 'Training' });
+  if (result.timedOut) _timedOutSections.push(endpoint);
+  return result.data;
 }
+
+// Reset timeout tracker per request
+router.use((req, res, next) => {
+  _timedOutSections = [];
+  // Patch res.json to append timedOutSections if any
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    if (_timedOutSections.length > 0 && body && typeof body === 'object' && !body.error) {
+      body.timedOutSections = [...new Set(_timedOutSections)];
+    }
+    return origJson(body);
+  };
+  next();
+});
 
 // --- Date helpers ---
 
@@ -85,13 +81,8 @@ async function getClient(id) {
 }
 
 // --- Helper: get completed workout IDs from calendar over a date range ---
-async function getCompletedWorkoutIds(tid, startDate, endDate) {
-  const calendarData = await trainerizePost('/calendar/getList', {
-    userID: Number(tid),
-    startDate,
-    endDate,
-    unitWeight: 'kg',
-  });
+async function getCompletedWorkoutIds(clientId, tid, startDate, endDate) {
+  const calendarData = await store.getCalendarData(clientId, tid, startDate, endDate);
   if (!calendarData?.calendar) return [];
 
   const ids = [];
@@ -105,19 +96,9 @@ async function getCompletedWorkoutIds(tid, startDate, endDate) {
   return ids;
 }
 
-// --- Helper: fetch workout details in batches ---
-async function fetchWorkoutDetails(workoutIds) {
-  if (workoutIds.length === 0) return [];
-
-  const allWorkouts = [];
-  for (let i = 0; i < workoutIds.length; i += 20) {
-    const batch = workoutIds.slice(i, i + 20);
-    const data = await trainerizePost('/dailyWorkout/get', { ids: batch });
-    if (data?.dailyWorkouts) {
-      allWorkouts.push(...data.dailyWorkouts);
-    }
-  }
-  return allWorkouts;
+// --- Helper: fetch workout details in batches (DB-backed) ---
+async function fetchWorkoutDetails(clientId, workoutIds) {
+  return store.getWorkoutDetails(clientId, workoutIds);
 }
 
 // Exercise type classification
@@ -277,19 +258,14 @@ router.get('/:id/calendar', async (req, res) => {
     if (!tid) return res.json({ calendar: [], range: getCalendarRange() });
 
     const range = getCalendarRange();
-    const calendarData = await trainerizePost('/calendar/getList', {
-      userID: Number(tid),
-      startDate: range.start,
-      endDate: range.end,
-      unitWeight: 'kg',
-    });
+    const calendarData = await store.getCalendarData(id, tid, range.start, range.end);
 
     const { days, walkingIds } = parseSessionCalendar(calendarData);
 
     // Fetch walking workout details to apply threshold filter
     let walkingDetails = {};
     if (walkingIds.length > 0) {
-      const details = await fetchWorkoutDetails(walkingIds);
+      const details = await fetchWorkoutDetails(id, walkingIds);
       for (const d of details) {
         walkingDetails[d.id] = d;
       }
@@ -334,12 +310,12 @@ router.get('/:id/exercises', async (req, res) => {
     start.setUTCMonth(start.getUTCMonth() - 3);
 
     const workoutIds = await getCompletedWorkoutIds(
-      client.trainerize_id,
+      id, client.trainerize_id,
       start.toISOString().split('T')[0],
       end.toISOString().split('T')[0]
     );
 
-    const workouts = await fetchWorkoutDetails(workoutIds);
+    const workouts = await fetchWorkoutDetails(id, workoutIds);
     const exercises = extractExercises(workouts);
     res.json({ exercises });
   } catch (err) {
@@ -385,12 +361,12 @@ router.get('/:id/key-lifts', async (req, res) => {
     start.setUTCMonth(start.getUTCMonth() - 3);
 
     const workoutIds = await getCompletedWorkoutIds(
-      client.trainerize_id,
+      id, client.trainerize_id,
       start.toISOString().split('T')[0],
       end.toISOString().split('T')[0]
     );
 
-    const workouts = await fetchWorkoutDetails(workoutIds);
+    const workouts = await fetchWorkoutDetails(id, workoutIds);
 
     // Build exercise type map for outlier detection
     const exerciseTypes = {};
@@ -723,7 +699,7 @@ router.get('/:id/block-progress', async (req, res) => {
       : today.toISOString().split('T')[0];
 
     // Fetch completed workouts within the plan date range
-    const workoutIds = await getCompletedWorkoutIds(client.trainerize_id, planStart, endDate);
+    const workoutIds = await getCompletedWorkoutIds(id, client.trainerize_id, planStart, endDate);
     if (workoutIds.length === 0) {
       return res.json({
         workouts: {},
@@ -732,7 +708,7 @@ router.get('/:id/block-progress', async (req, res) => {
       });
     }
 
-    const allWorkouts = await fetchWorkoutDetails(workoutIds);
+    const allWorkouts = await fetchWorkoutDetails(id, workoutIds);
 
     // Query manual flags for this client
     const manualFlagRows = await pool.query(

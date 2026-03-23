@@ -1,35 +1,29 @@
 const express = require('express');
 const pool = require('../db/pool');
+const { trainerizePost: tzPost } = require('../lib/trainerize');
+const store = require('../lib/trainerize-store');
 
 const router = express.Router();
 const COACH_ID = 1;
 
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
+let _timedOutSections = [];
 async function trainerizePost(endpoint, body) {
-  try {
-    const res = await fetch(`${TRAINERIZE_API}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: TRAINERIZE_AUTH,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      console.warn(`[Calendar] Trainerize ${endpoint} returned ${res.status}`);
-      return null;
-    }
-    return res.json();
-  } catch (err) {
-    console.error(`[Calendar] Trainerize ${endpoint} error:`, err.message);
-    return null;
-  }
+  const result = await tzPost(endpoint, body, { label: 'Calendar' });
+  if (result.timedOut) _timedOutSections.push(endpoint);
+  return result.data;
 }
+
+router.use((req, res, next) => {
+  _timedOutSections = [];
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    if (_timedOutSections.length > 0 && body && typeof body === 'object' && !body.error) {
+      body.timedOutSections = [...new Set(_timedOutSections)];
+    }
+    return origJson(body);
+  };
+  next();
+});
 
 // --- Date helpers ---
 
@@ -263,23 +257,10 @@ router.get('/:id', async (req, res) => {
 
     // Fetch calendar, nutrition, sleep, and weight data in parallel
     const [calendarData, nutritionData, sleepData, weightEntries] = await Promise.all([
-      trainerizePost('/calendar/getList', {
-        userID: Number(tid),
-        startDate: range.startDate,
-        endDate: range.endDate,
-        unitWeight: 'kg',
-      }),
-      trainerizePost('/dailyNutrition/getList', {
-        userID: Number(tid),
-        startDate: range.startDate,
-        endDate: range.endDate,
-      }),
-      trainerizePost('/healthData/getListSleep', {
-        userID: Number(tid),
-        startTime: range.startDate + ' 00:00:00',
-        endTime: range.endDate + ' 23:59:59',
-      }),
-      fetchWeightEntries(tid, range.startDate, range.endDate),
+      store.getCalendarData(id, tid, range.startDate, range.endDate),
+      store.getNutritionData(id, tid, range.startDate, range.endDate),
+      store.getSleepData(id, tid, range.startDate, range.endDate),
+      store.getBodyStats(id, tid, range.startDate, range.endDate),
     ]);
 
     if (!calendarData?.calendar) {
@@ -372,7 +353,7 @@ router.get('/:id', async (req, res) => {
 
     // Fetch workout details for completed cardio/walking to get duration/distance and walking filter
     const detailIds = [...new Set([...walkingIds, ...cardioIds])];
-    const details = await fetchWorkoutDetails(detailIds);
+    const details = await store.getWorkoutDetails(id, detailIds);
     const detailMap = {};
     for (const d of details) {
       detailMap[d.id] = d;

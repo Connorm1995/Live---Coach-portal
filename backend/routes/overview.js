@@ -1,55 +1,23 @@
 const express = require('express');
 const pool = require('../db/pool');
+const { trainerizePost: tzPost, trainerizeGet: tzGet } = require('../lib/trainerize');
+const store = require('../lib/trainerize-store');
 
 const router = express.Router();
 const COACH_ID = 1;
 
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
-// --- Trainerize API helper ---
+// Thin wrappers - return raw data, track timeouts per request
+// Single-coach tool so module-level array is safe (no concurrent users)
+let _timedOutSections = [];
 async function trainerizePost(endpoint, body) {
-  try {
-    const res = await fetch(`${TRAINERIZE_API}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: TRAINERIZE_AUTH,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      console.warn(`[Overview] Trainerize ${endpoint} returned ${res.status}`);
-      return null;
-    }
-    return res.json();
-  } catch (err) {
-    console.error(`[Overview] Trainerize ${endpoint} error:`, err.message);
-    return null;
-  }
+  const result = await tzPost(endpoint, body, { label: 'Overview' });
+  if (result.timedOut) _timedOutSections.push(endpoint);
+  return result.data;
 }
-
 async function trainerizeGet(endpoint) {
-  try {
-    const res = await fetch(`${TRAINERIZE_API}${endpoint}`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: TRAINERIZE_AUTH,
-      },
-    });
-    if (!res.ok) {
-      console.warn(`[Overview] Trainerize GET ${endpoint} returned ${res.status}`);
-      return null;
-    }
-    return res.json();
-  } catch (err) {
-    console.error(`[Overview] Trainerize GET ${endpoint} error:`, err.message);
-    return null;
-  }
+  const result = await tzGet(endpoint, { label: 'Overview' });
+  if (result.timedOut) _timedOutSections.push(endpoint);
+  return result.data;
 }
 
 // --- Date helpers ---
@@ -482,6 +450,7 @@ router.get('/:id', async (req, res) => {
   const { id } = req.params;
   const { weightRange = '3m' } = req.query;
 
+  _timedOutSections = []; // reset per request
   try {
     const clientResult = await pool.query(
       `SELECT id, name, trainerize_id, current_phase FROM clients WHERE id = $1 AND coach_id = $2`,
@@ -538,40 +507,17 @@ router.get('/:id', async (req, res) => {
         [id, COACH_ID]
       ),
       // calendar/getList for training compliance (workouts + cardio in prev week)
-      tid ? trainerizePost('/calendar/getList', {
-        userID: Number(tid),
-        startDate: prevWeek.start,
-        endDate: prevWeek.end,
-        unitWeight: 'kg',
-      }) : null,
+      tid ? store.getCalendarData(id, tid, prevWeek.start, prevWeek.end) : null,
       // dailyNutrition/getList for nutrition adherence
-      tid ? trainerizePost('/dailyNutrition/getList', {
-        userID: Number(tid),
-        startDate: prevWeek.start,
-        endDate: prevWeek.end,
-      }) : null,
-      // bodystats/get per date for weight trajectory
-      fetchWeightEntries(tid, weightDates.start, weightDates.end),
-      // healthData/getList for steps (last 10 days)
-      tid ? trainerizePost('/healthData/getList', {
-        userID: Number(tid),
-        type: 'step',
-        startDate: last10.start,
-        endDate: last10.end,
-      }) : null,
-      // healthData/getListSleep for sleep (last 10 days)
-      tid ? trainerizePost('/healthData/getListSleep', {
-        userID: Number(tid),
-        startTime: last10.start + ' 00:00:00',
-        endTime: last10.end + ' 23:59:59',
-      }) : null,
-      // healthData/getList for resting heart rate (last 10 days)
-      tid ? trainerizePost('/healthData/getList', {
-        userID: Number(tid),
-        type: 'restingHeartRate',
-        startDate: last10.start,
-        endDate: last10.end,
-      }) : null,
+      tid ? store.getNutritionData(id, tid, prevWeek.start, prevWeek.end) : null,
+      // bodystats for weight trajectory (DB-backed)
+      store.getBodyStats(id, tid, weightDates.start, weightDates.end),
+      // healthData for steps (last 10 days, DB-backed)
+      tid ? store.getHealthData(id, tid, 'step', last10.start, last10.end) : null,
+      // sleep data (last 10 days, DB-backed)
+      tid ? store.getSleepData(id, tid, last10.start, last10.end) : null,
+      // resting heart rate (last 10 days, DB-backed)
+      tid ? store.getHealthData(id, tid, 'restingHeartRate', last10.start, last10.end) : null,
     ]);
 
     // Parse
@@ -656,6 +602,18 @@ router.get('/:id', async (req, res) => {
       allFocus[row.week_start] = row.focus_text;
     }
 
+    // Map timed-out endpoints to human-readable section names
+    const SECTION_MAP = {
+      '/calendar/getList': 'training',
+      '/dailyNutrition/getList': 'nutrition',
+      '/bodystats/get': 'weight',
+      '/healthData/getList': 'steps',
+      '/healthData/getListSleep': 'sleep',
+    };
+    const timedOutSections = [...new Set(
+      _timedOutSections.map(ep => SECTION_MAP[ep] || ep)
+    )];
+
     res.json({
       scores,
       scoreTrend,
@@ -674,6 +632,7 @@ router.get('/:id', async (req, res) => {
       weight: { entries: weightEntries, phase: phaseOverlay, trajectory: trajectoryOverlay },
       weightComparison,
       prevWeek,
+      ...(timedOutSections.length > 0 ? { timedOutSections } : {}),
     });
   } catch (err) {
     console.error('[Overview] Error:', err.message);

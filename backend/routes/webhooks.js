@@ -1,39 +1,20 @@
 const express = require('express');
 const pool = require('../db/pool');
+const { trainerizePostRaw, invalidateCacheForClient } = require('../lib/trainerize');
+const { upsertBodyStat, upsertWorkout, upsertCardio } = require('../lib/trainerize-store');
 
 const router = express.Router();
 
 const COACH_ID = 1; // Single coach for now
 
-// --- Trainerize API helper ---
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
 async function trainerizeFindByEmail(email) {
-  const res = await fetch(`${TRAINERIZE_API}/user/find`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': TRAINERIZE_AUTH,
-    },
-    body: JSON.stringify({
-      searchTerm: email,
-      view: 'allClient',
-      start: 0,
-      count: 5,
-    }),
+  const data = await trainerizePostRaw('/user/find', {
+    searchTerm: email,
+    view: 'allClient',
+    start: 0,
+    count: 5,
   });
-
-  if (!res.ok) {
-    throw new Error(`Trainerize API responded ${res.status}`);
-  }
-
-  const data = await res.json();
   const users = data.users || [];
-  // Match on exact email (search may return partial matches)
   return users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase()) || null;
 }
 
@@ -396,6 +377,56 @@ async function handleUserTagRemovedFromUser(payload) {
   return {};
 }
 
+// --- Persistent storage handlers ---
+
+async function handleBodystatsCompleted(payload) {
+  const { userID, bodystats } = payload;
+  if (!userID || !bodystats?.date) {
+    console.warn('[Trainerize bodystats.completed] Missing userID or date');
+    return { skipped: 'missing fields' };
+  }
+
+  try {
+    await upsertBodyStat(userID, bodystats.date);
+    console.log(`[Trainerize bodystats.completed] Stored for userID=${userID} on ${bodystats.date}`);
+  } catch (err) {
+    console.error(`[Trainerize bodystats.completed] Error: ${err.message}`);
+  }
+  return {};
+}
+
+async function handleDailyWorkoutCompleted(payload) {
+  const { userID, dailyWorkoutID } = payload;
+  if (!userID || !dailyWorkoutID) {
+    console.warn('[Trainerize dailyWorkout.completed] Missing userID or dailyWorkoutID');
+    return { skipped: 'missing fields' };
+  }
+
+  try {
+    await upsertWorkout(userID, dailyWorkoutID);
+    console.log(`[Trainerize dailyWorkout.completed] Stored workout ${dailyWorkoutID} for userID=${userID}`);
+  } catch (err) {
+    console.error(`[Trainerize dailyWorkout.completed] Error: ${err.message}`);
+  }
+  return {};
+}
+
+async function handleDailyCardioCompleted(payload) {
+  const { userID, dailyWorkoutID } = payload;
+  if (!userID || !dailyWorkoutID) {
+    console.warn('[Trainerize dailyCardio.completed] Missing userID or dailyWorkoutID');
+    return { skipped: 'missing fields' };
+  }
+
+  try {
+    await upsertCardio(userID, dailyWorkoutID);
+    console.log(`[Trainerize dailyCardio.completed] Stored cardio ${dailyWorkoutID} for userID=${userID}`);
+  } catch (err) {
+    console.error(`[Trainerize dailyCardio.completed] Error: ${err.message}`);
+  }
+  return {};
+}
+
 // --- Event type → handler map ---
 
 const TRAINERIZE_HANDLERS = {
@@ -407,15 +438,13 @@ const TRAINERIZE_HANDLERS = {
   // Intentionally not handled — client.deleted must never affect portal data
   // 'client.deleted':    null,
 
-  // Reserved for future use — workout & cardio tracking
-  'dailyWorkout.completed': null,
-  'dailyCardio.completed':  null,
+  // Active handlers — persistent storage
+  'dailyWorkout.completed': handleDailyWorkoutCompleted,
+  'dailyCardio.completed':  handleDailyCardioCompleted,
+  'bodystats.completed':    handleBodystatsCompleted,
 
   // Reserved for future use — client reassignment
   'client.assigned': null,
-
-  // Reserved for future use — body stats
-  'bodystats.completed': null,
 
   // Reserved for future use — goals
   'goal.added':                  null,
@@ -505,6 +534,15 @@ router.post('/trainerize', async (req, res) => {
     if (!eventType) {
       console.warn('[Trainerize webhook] Could not determine event type:', JSON.stringify(payload).slice(0, 200));
       return res.status(200).json({ ok: true, skipped: 'unknown event' });
+    }
+
+    // Invalidate cache for any event that signals data changed for a client
+    const CACHE_INVALIDATION_EVENTS = [
+      'dailyWorkout.completed', 'dailyCardio.completed', 'bodystats.completed',
+      'client.statusChanged', 'addOn.mfp.connected', 'addOn.fitbit.connected',
+    ];
+    if (CACHE_INVALIDATION_EVENTS.includes(eventType) && payload.userID) {
+      invalidateCacheForClient(String(payload.userID));
     }
 
     const handler = TRAINERIZE_HANDLERS[eventType];

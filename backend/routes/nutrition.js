@@ -1,5 +1,7 @@
 const express = require('express');
 const pool = require('../db/pool');
+const { trainerizePost: tzPost } = require('../lib/trainerize');
+const store = require('../lib/trainerize-store');
 
 const router = express.Router();
 
@@ -8,25 +10,24 @@ const TZ = 'Europe/Dublin';
 const TRACKING_THRESHOLD = 0.65; // 65% of calorie goal
 const NUTR_SATURATED_FAT = 606; // USDA nutrient number for saturated fat
 
-// --- Trainerize API helper ---
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
+let _timedOutSections = [];
 async function trainerizePost(endpoint, body) {
-  const res = await fetch(`${TRAINERIZE_API}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: TRAINERIZE_AUTH,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return null;
-  return res.json();
+  const result = await tzPost(endpoint, body, { label: 'Nutrition' });
+  if (result.timedOut) _timedOutSections.push(endpoint);
+  return result.data;
 }
+
+router.use((req, res, next) => {
+  _timedOutSections = [];
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    if (_timedOutSections.length > 0 && body && typeof body === 'object' && !body.error) {
+      body.timedOutSections = [...new Set(_timedOutSections)];
+    }
+    return origJson(body);
+  };
+  next();
+});
 
 // Extract a nutrient value from the nutrients array by USDA nutrNo
 function extractNutrient(nutrients, nutrNo) {
@@ -138,16 +139,9 @@ router.get('/:id', async (req, res) => {
     const prevWeekDates = dateRange(prevWeek.start, prevWeek.end);
 
     const [breakdownData, ...prevWeekDayResults] = await Promise.all([
-      trainerizePost('/dailyNutrition/getList', {
-        userID: Number(tid),
-        startDate: breakdownStart,
-        endDate: breakdownEnd,
-      }),
+      store.getNutritionData(id, tid, breakdownStart, breakdownEnd),
       ...prevWeekDates.map(date =>
-        trainerizePost('/dailyNutrition/get', {
-          userID: Number(tid),
-          date,
-        })
+        store.getNutritionDetail(id, tid, date)
       ),
     ]);
 

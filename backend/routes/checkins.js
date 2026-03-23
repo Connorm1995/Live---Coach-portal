@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db/pool');
+const { trainerizePostRaw } = require('../lib/trainerize');
 
 const { getCurrentCycleSunday, getCurrentMonthFirst, isCycleClosed } = require('../lib/cycle');
 
@@ -7,35 +8,14 @@ const router = express.Router();
 
 const COACH_ID = 1; // Single coach for now
 
-// --- Trainerize API helper ---
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
 async function trainerizeSendDM(recipientTrainerizeId, messageText) {
-  const res = await fetch(`${TRAINERIZE_API}/message/send`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: TRAINERIZE_AUTH,
-    },
-    body: JSON.stringify({
-      recipients: [Number(recipientTrainerizeId)],
-      subject: 'Check-in Feedback',
-      body: messageText,
-      conversationType: 'single',
-      type: 'text',
-    }),
+  return trainerizePostRaw('/message/send', {
+    recipients: [Number(recipientTrainerizeId)],
+    subject: 'Check-in Feedback',
+    body: messageText,
+    conversationType: 'single',
+    type: 'text',
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Trainerize message/send responded ${res.status}: ${text}`);
-  }
-
-  return res.json();
 }
 
 // GET /api/checkins/hub?filter=all|weekly|eom

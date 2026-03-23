@@ -1,27 +1,6 @@
 const pool = require('../db/pool');
 const { getCurrentCycleSunday, getCurrentMonthFirst, getEomDeadlineMonday } = require('./cycle');
-
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
-async function trainerizePost(endpoint, body) {
-  const res = await fetch(`${TRAINERIZE_API}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: TRAINERIZE_AUTH,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Trainerize ${endpoint} responded ${res.status}: ${text}`);
-  }
-  return res.json();
-}
+const { trainerizePostRaw: trainerizePost, trainerizeUploadFile } = require('./trainerize');
 
 async function processScheduledMessages() {
   try {
@@ -83,15 +62,7 @@ async function trainerizeUploadAttachment(fileBuffer, fileName, mimeType, thread
     attachTo: Number(threadID),
   }));
 
-  const res = await fetch(`${TRAINERIZE_API}/file/upload`, {
-    method: 'POST',
-    headers: { Accept: 'application/json', Authorization: TRAINERIZE_AUTH },
-    body: form,
-  });
-
-  const text = await res.text();
-  if (!res.ok) throw new Error(`file/upload responded ${res.status}: ${text}`);
-  return JSON.parse(text);
+  return trainerizeUploadFile(form);
 }
 
 async function processScheduledPosts() {

@@ -1,42 +1,18 @@
 const express = require('express');
 const multer = require('multer');
 const pool = require('../db/pool');
+const { trainerizePostRaw: trainerizePost, trainerizeUploadFile } = require('../lib/trainerize');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const COACH_ID = 1;
 
-// --- Trainerize API helpers ---
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
-async function trainerizePost(endpoint, body) {
-  const res = await fetch(`${TRAINERIZE_API}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: TRAINERIZE_AUTH,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Trainerize ${endpoint} responded ${res.status}: ${text}`);
-  }
-  return res.json();
-}
-
 // ─── FILE UPLOAD ────────────────────────────────────────────
 
 /**
  * Upload a file to Trainerize as a message attachment.
  * Uses /file/upload with attachType=messageAttachment and attachTo=threadID.
- * This creates a message with the attachment in the specified thread in one step.
- * Returns { id, messageID } from Trainerize.
  */
 async function trainerizeUploadAttachment(fileBuffer, fileName, mimeType, threadID) {
   const form = new FormData();
@@ -48,25 +24,8 @@ async function trainerizeUploadAttachment(fileBuffer, fileName, mimeType, thread
   }));
 
   console.log('[File Upload] Uploading to /file/upload with attachType=messageAttachment, attachTo=', threadID, 'fileName=', fileName);
-
-  const tzRes = await fetch(`${TRAINERIZE_API}/file/upload`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      Authorization: TRAINERIZE_AUTH,
-    },
-    body: form,
-  });
-
-  const responseText = await tzRes.text();
-  console.log('[File Upload] Response status:', tzRes.status, 'body:', responseText);
-
-  if (!tzRes.ok) {
-    throw new Error(`Trainerize file/upload responded ${tzRes.status}: ${responseText}`);
-  }
-
-  let data;
-  try { data = JSON.parse(responseText); } catch { data = { raw: responseText }; }
+  const data = await trainerizeUploadFile(form);
+  console.log('[File Upload] Response:', JSON.stringify(data));
   return data;
 }
 
@@ -101,19 +60,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       form.append('file', blob, req.file.originalname);
       form.append('data', JSON.stringify({}));
 
-      const tzRes = await fetch(`${TRAINERIZE_API}/file/upload`, {
-        method: 'POST',
-        headers: { Accept: 'application/json', Authorization: TRAINERIZE_AUTH },
-        body: form,
-      });
-
-      const responseText = await tzRes.text();
-      if (!tzRes.ok) {
-        throw new Error(`Trainerize file/upload responded ${tzRes.status}: ${responseText}`);
-      }
-
-      let data;
-      try { data = JSON.parse(responseText); } catch { data = { raw: responseText }; }
+      const data = await trainerizeUploadFile(form);
 
       res.json({
         success: true,

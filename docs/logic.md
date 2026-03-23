@@ -568,3 +568,123 @@ Settings are stored in the `weight_trajectory_settings` table (one row per clien
 ### Settings panel
 
 The settings panel opens inline below the Weight Trajectory section header (not a modal). It slides open when the gear icon is clicked. If no settings are saved, the gear icon shows a small amber dot indicator. The Clear button removes the overlay entirely (hard delete - this is a settings record, not user content).
+
+---
+
+## Trainerize API Performance
+
+### Shared helper
+
+All Trainerize API calls go through a single shared module at `backend/lib/trainerize.js`. This provides:
+
+- **Authentication:** Basic auth using `TRAINERIZE_GROUP_ID` and `TRAINERIZE_API_TOKEN` from environment variables.
+- **Two call modes:** `trainerizePost` (cached, returns `{ data, timedOut }`) for read operations, and `trainerizePostRaw` (throws on error, no cache) for write operations (messaging, file uploads, scheduled sends).
+- **File uploads:** `trainerizeUploadFile` handles FormData uploads to `/file/upload`.
+
+### Timeout and retry
+
+Every Trainerize API call has an **8-second timeout**. If a call times out or fails:
+
+1. Wait 3 seconds, then retry once automatically.
+2. If the retry also fails, return `null` for that data section.
+3. The failed endpoint is tracked and included in the API response as `timedOutSections` - an array of human-readable section names (e.g. `["sleep", "weight"]`).
+4. The frontend can use `timedOutSections` to show a "tap to retry" indicator on just the affected section instead of showing it as silently empty.
+
+**Why:** Trainerize's API occasionally has slow responses. Without a timeout, a single stuck call blocks the entire page load. The retry catches transient failures. Returning partial data with clear flags means Connor always sees what loaded and what did not.
+
+### In-memory caching
+
+A simple in-memory `Map` caches Trainerize API responses. No Redis needed - this is a single-coach tool with one user.
+
+**Cache key format:** `clientId:endpoint:bodyJSON`
+
+Where `clientId` is the Trainerize `userID`, `endpoint` is the API path (e.g. `/calendar/getList`), and `bodyJSON` is the full JSON-stringified request body. This means different date ranges or different clients always get separate cache entries.
+
+**TTL rules:**
+
+- **Historical data** (any request where the end date falls before the current Monday) - cached for **1 hour**. Yesterday's sleep, last week's steps, and historical body stats do not change.
+- **Current week data** (any request where the end date is the current week or later) - cached for **5 minutes**. This keeps the data reasonably fresh during a live review call.
+
+**How "historical" is determined:** The helper checks the request body for `endDate` or `endTime` fields. If the end date falls before the current Monday in Europe/Dublin timezone, the data is considered historical.
+
+### Cache invalidation
+
+When a Trainerize webhook fires for a client (workout completed, body stats logged, cardio completed, status changed, add-on connected), **all cache entries for that client's Trainerize userID are cleared immediately**. This ensures the portal always shows fresh data when the client has just done something.
+
+The events that trigger invalidation: `dailyWorkout.completed`, `dailyCardio.completed`, `bodystats.completed`, `client.statusChanged`, `addOn.mfp.connected`, `addOn.fitbit.connected`.
+
+### Prefetching
+
+When Connor selects a client from the Check-in Hub, the frontend immediately fires a background POST to `/api/clients/:id/prefetch`. This endpoint:
+
+1. Looks up the client's Trainerize ID.
+2. Fires all Overview tab Trainerize calls in parallel (calendar, nutrition, steps, sleep, resting heart rate).
+3. Returns `{ ok: true }` immediately without waiting for the calls to complete.
+
+The calls populate the cache in the background. By the time Connor navigates to the Overview tab (which happens almost instantly after selection), the data is already cached and the tab loads from cache instead of making fresh API calls.
+
+**Why this works:** The Check-in Hub selection triggers a client detail fetch which takes ~200ms. During that time, the prefetch fires 5 parallel Trainerize calls. Even if the Trainerize calls take 2-3 seconds, they complete before Connor starts reading the Overview data.
+
+### Cache lifecycle
+
+The in-memory cache lives in process memory and acts as a fast L1 layer. It is backed by persistent PostgreSQL storage (see below).
+
+---
+
+## Persistent Trainerize Data Storage
+
+### Problem
+
+The in-memory cache is lost on server restart. Historical data that never changes (last week's sleep, last month's workouts) was being re-fetched from Trainerize on every restart and on every first page load.
+
+### Solution
+
+All Trainerize data is now stored permanently in PostgreSQL. The data layer (`backend/lib/trainerize-store.js`) checks the database first and only calls Trainerize when data is missing or stale.
+
+### Database tables
+
+| Table | Content | Unique key |
+|-------|---------|------------|
+| `client_body_stats` | Weight, body fat, measurements per date | client_id + date |
+| `client_sleep` | Sleep segments per night | client_id + date + start_time |
+| `client_health_data` | Steps, resting heart rate per date | client_id + date + type |
+| `client_nutrition` | Calories, macros, goals per date | client_id + date |
+| `client_workouts` | Strength sessions with full detail JSON | client_id + trainerize_id |
+| `client_cardio` | Cardio sessions with duration/distance/HR | client_id + trainerize_id |
+| `backfill_progress` | Tracks backfill script resume state | client_id + data_type |
+
+### Fetch strategy
+
+When any backend route needs Trainerize data for a client:
+
+1. **Check the database first** for the requested client + date range.
+2. **If the data exists and the date is before the current Monday** - use it from the database. Never call Trainerize again for that data. Historical data does not change.
+3. **If the data exists and the date is within the current week** - use it only if it was fetched within the last 5 minutes. This keeps data fresh during live review calls.
+4. **If the data does not exist** - fetch from Trainerize, store it in the database, then return it.
+
+### Webhook-driven updates
+
+When a client logs a body stat, completes a workout, or completes a cardio session, the corresponding Trainerize webhook fires and immediately upserts the data into the database:
+
+- `bodystats.completed` - fetches full body stats via API (webhook only has partial data) and stores in `client_body_stats`
+- `dailyWorkout.completed` - fetches full workout detail and stores in `client_workouts` with `detail_json`
+- `dailyCardio.completed` - fetches full cardio detail and stores in `client_cardio` with duration/distance/HR
+
+This means the database stays up to date in real time without waiting for the next page load.
+
+### Backfill script
+
+`backend/db/backfill-trainerize.js` fetches 12 months of historical data for all clients. Features:
+
+- Processes 5 clients in parallel, all data types within each client in parallel
+- Rate limiting: stays under 900 requests/minute (Trainerize limit is 1000)
+- Retry with exponential backoff: 3s, 6s, 12s delays on failure
+- Resume capability: tracks progress in `backfill_progress` table, skips completed work on re-run
+- Real-time progress logging per client per data type
+
+### Two-layer cache architecture
+
+1. **L1 (in-memory)**: Fast, 5-minute TTL for current week, 1-hour TTL for historical. Lost on restart.
+2. **L2 (PostgreSQL)**: Permanent. Historical data never expires. Current week data refreshed every 5 minutes.
+
+On a cold start after restart, the first page load reads from PostgreSQL (fast, ~10ms) instead of calling Trainerize (slow, ~1-2s). The in-memory cache warms naturally from these DB reads.

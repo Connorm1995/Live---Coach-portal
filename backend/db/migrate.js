@@ -298,6 +298,172 @@ async function migrate() {
       ALTER TABLE coach_settings ADD COLUMN IF NOT EXISTS core_reminders_enabled BOOLEAN NOT NULL DEFAULT true
     `);
 
+    // =====================================================================
+    // Persistent Trainerize data storage tables
+    // =====================================================================
+
+    // Body stats - one row per client per date
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_body_stats (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        body_weight NUMERIC(6,2),
+        body_fat_percent NUMERIC(5,2),
+        lean_body_mass NUMERIC(6,2),
+        fat_mass NUMERIC(6,2),
+        chest NUMERIC(6,2),
+        shoulders NUMERIC(6,2),
+        right_bicep NUMERIC(6,2),
+        left_bicep NUMERIC(6,2),
+        right_forearm NUMERIC(6,2),
+        left_forearm NUMERIC(6,2),
+        right_thigh NUMERIC(6,2),
+        left_thigh NUMERIC(6,2),
+        right_calf NUMERIC(6,2),
+        left_calf NUMERIC(6,2),
+        waist NUMERIC(6,2),
+        hips NUMERIC(6,2),
+        neck NUMERIC(6,2),
+        resting_heart_rate INTEGER,
+        blood_pressure_systolic INTEGER,
+        blood_pressure_diastolic INTEGER,
+        caliper_bf NUMERIC(5,2),
+        fetched_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(coach_id, client_id, date)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_body_stats_client_date
+      ON client_body_stats(client_id, date);
+    `);
+
+    // Sleep - one row per sleep segment per night
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_sleep (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        start_time TIMESTAMPTZ,
+        end_time TIMESTAMPTZ,
+        duration_seconds INTEGER,
+        sleep_type VARCHAR DEFAULT 'asleep',
+        fetched_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(coach_id, client_id, date, start_time)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_sleep_client_date
+      ON client_sleep(client_id, date);
+    `);
+
+    // Health data - one row per client per date per type (step, restingHeartRate, calorieOut)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_health_data (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        type VARCHAR NOT NULL,
+        value NUMERIC(10,2),
+        fetched_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(coach_id, client_id, date, type)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_health_data_client_date
+      ON client_health_data(client_id, date, type);
+    `);
+
+    // Nutrition - one row per client per date
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_nutrition (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        calories NUMERIC(8,2),
+        protein NUMERIC(8,2),
+        fat NUMERIC(8,2),
+        carbs NUMERIC(8,2),
+        fibre NUMERIC(8,2),
+        saturated_fat NUMERIC(8,2),
+        calories_goal NUMERIC(8,2),
+        protein_goal NUMERIC(8,2),
+        fat_goal NUMERIC(8,2),
+        carbs_goal NUMERIC(8,2),
+        fetched_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(coach_id, client_id, date)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_nutrition_client_date
+      ON client_nutrition(client_id, date);
+    `);
+
+    // Workouts - one row per session (strength/circuit/interval/video/regular)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_workouts (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        name VARCHAR,
+        status VARCHAR,
+        type VARCHAR,
+        duration_seconds INTEGER,
+        trainerize_id INTEGER NOT NULL,
+        detail_json JSONB,
+        fetched_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(coach_id, client_id, trainerize_id)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_workouts_client_date
+      ON client_workouts(client_id, date);
+    `);
+
+    // Cardio - one row per cardio session
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_cardio (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        name VARCHAR,
+        type VARCHAR DEFAULT 'cardio',
+        duration_seconds INTEGER,
+        distance NUMERIC(8,2),
+        calories NUMERIC(8,2),
+        max_heart_rate INTEGER,
+        status VARCHAR,
+        trainerize_id INTEGER NOT NULL,
+        fetched_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(coach_id, client_id, trainerize_id)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_cardio_client_date
+      ON client_cardio(client_id, date);
+    `);
+
+    // Backfill progress tracking - resume capability for the backfill script
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS backfill_progress (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        data_type VARCHAR NOT NULL,
+        status VARCHAR DEFAULT 'pending',
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        error_message TEXT,
+        rows_inserted INTEGER DEFAULT 0,
+        UNIQUE(client_id, data_type)
+      );
+    `);
+
     await client.query('COMMIT');
     console.log('Migration complete.');
   } catch (err) {

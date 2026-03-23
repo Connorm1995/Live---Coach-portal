@@ -1,29 +1,14 @@
 const express = require('express');
 const pool = require('../db/pool');
+const { trainerizePost: tzPost } = require('../lib/trainerize');
 
 const router = express.Router();
 
 const COACH_ID = 1; // Single coach for now
 
-// --- Trainerize API helper ---
-const TRAINERIZE_API = 'https://api.trainerize.com/v03';
-const TRAINERIZE_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.TRAINERIZE_GROUP_ID}:${process.env.TRAINERIZE_API_TOKEN}`
-).toString('base64');
-
 async function trainerizeGetClientSummary(trainerizeId) {
-  const res = await fetch(`${TRAINERIZE_API}/user/getClientSummary`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: TRAINERIZE_AUTH,
-    },
-    body: JSON.stringify({ userID: Number(trainerizeId) }),
-  });
-
-  if (!res.ok) return null;
-  return res.json();
+  const result = await tzPost('/user/getClientSummary', { userID: Number(trainerizeId) }, { label: 'Clients' });
+  return result.data;
 }
 
 // GET /api/clients — list all clients for this coach
@@ -234,6 +219,61 @@ router.patch('/:id/toggle-reminders', async (req, res) => {
   } catch (err) {
     console.error('[Clients] Error toggling reminders:', err.message);
     res.status(500).json({ error: 'Failed to toggle reminders' });
+  }
+});
+
+// POST /api/clients/:id/prefetch - warm the cache for a client's Overview tab data
+// Called in the background when a client is selected from the Check-in Hub
+router.post('/:id/prefetch', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const clientResult = await pool.query(
+      `SELECT trainerize_id FROM clients WHERE id = $1 AND coach_id = $2`,
+      [id, COACH_ID]
+    );
+    if (clientResult.rows.length === 0) return res.json({ ok: true });
+    const tid = clientResult.rows[0].trainerize_id;
+    if (!tid) return res.json({ ok: true });
+
+    // Calculate date ranges (same as overview.js)
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const dow = today.getUTCDay();
+    const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+    const thisMonday = new Date(today);
+    thisMonday.setUTCDate(today.getUTCDate() - daysSinceMonday);
+    const prevMonday = new Date(thisMonday);
+    prevMonday.setUTCDate(thisMonday.getUTCDate() - 7);
+    const prevSunday = new Date(prevMonday);
+    prevSunday.setUTCDate(prevMonday.getUTCDate() + 6);
+    const prevWeekStart = prevMonday.toISOString().split('T')[0];
+    const prevWeekEnd = prevSunday.toISOString().split('T')[0];
+
+    const yesterday = new Date(today);
+    yesterday.setUTCDate(today.getUTCDate() - 1);
+    const tenDaysAgo = new Date(yesterday);
+    tenDaysAgo.setUTCDate(yesterday.getUTCDate() - 9);
+    const last10Start = tenDaysAgo.toISOString().split('T')[0];
+    const last10End = yesterday.toISOString().split('T')[0];
+
+    // Fire all Trainerize calls in parallel (just to warm cache, discard results)
+    Promise.all([
+      tzPost('/calendar/getList', { userID: Number(tid), startDate: prevWeekStart, endDate: prevWeekEnd, unitWeight: 'kg' }, { label: 'Prefetch' }),
+      tzPost('/dailyNutrition/getList', { userID: Number(tid), startDate: prevWeekStart, endDate: prevWeekEnd }, { label: 'Prefetch' }),
+      tzPost('/healthData/getList', { userID: Number(tid), type: 'step', startDate: last10Start, endDate: last10End }, { label: 'Prefetch' }),
+      tzPost('/healthData/getListSleep', { userID: Number(tid), startTime: last10Start + ' 00:00:00', endTime: last10End + ' 23:59:59' }, { label: 'Prefetch' }),
+      tzPost('/healthData/getList', { userID: Number(tid), type: 'restingHeartRate', startDate: last10Start, endDate: last10End }, { label: 'Prefetch' }),
+    ]).then(() => {
+      console.log(`[Prefetch] Cache warmed for client ${id} (tid=${tid})`);
+    }).catch(err => {
+      console.warn(`[Prefetch] Error warming cache for client ${id}:`, err.message);
+    });
+
+    // Return immediately - don't wait for prefetch to complete
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Prefetch] Error:', err.message);
+    res.json({ ok: true }); // never fail the client selection
   }
 });
 
