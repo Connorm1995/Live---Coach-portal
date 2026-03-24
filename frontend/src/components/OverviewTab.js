@@ -247,15 +247,18 @@ function CheckinSummary({ scores, formAnswers }) {
         const value = getValue(field);
         const unanswered = value == null;
 
+        // Unanswered follow-ups: just a hairline divider
+        if (field.type === 'followup' && unanswered) {
+          return <hr key={field.key} className="checkin-summary__skip" />;
+        }
+
         return (
           <div
             key={field.key}
-            className={`checkin-summary__row${field.type === 'followup' ? ' checkin-summary__row--followup' : ''}${unanswered ? ' checkin-summary__row--muted' : ''}`}
+            className={`checkin-summary__field${field.type === 'followup' ? ' checkin-summary__field--followup' : ''}`}
           >
             <span className="checkin-summary__label">{field.label}</span>
-            <span className={`checkin-summary__value${unanswered ? ' checkin-summary__value--muted' : ''}`}>
-              {unanswered ? '\u2013' : value}
-            </span>
+            <span className="checkin-summary__value">{value}</span>
           </div>
         );
       })}

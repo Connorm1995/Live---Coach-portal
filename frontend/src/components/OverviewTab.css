@@ -206,49 +206,49 @@
 
 /* === Form Summary Cards === */
 
-/* === Check-in Summary (linear list) === */
+/* === Check-in Summary (stacked layout) === */
 
 .checkin-summary {
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+  max-width: 60%;
 }
 
-.checkin-summary__row {
+.checkin-summary__field {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: var(--space-2) 0;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-.checkin-summary__row--followup {
+.checkin-summary__field--followup {
   padding-left: var(--space-4);
-}
-
-.checkin-summary__row--muted {
-  opacity: 0.4;
 }
 
 .checkin-summary__label {
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--color-slate);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .checkin-summary__value {
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: #2d3436;
-  text-align: right;
-  max-width: 60%;
+  line-height: 1.5;
 }
 
-.checkin-summary__value--muted {
-  font-size: 13px;
-  color: var(--color-slate);
-  font-weight: 400;
+.checkin-summary__skip {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  margin: 0;
+  height: 0;
 }
 
 /* === Previous Check-ins === */
