@@ -197,22 +197,68 @@ function TotalBadge({ total, trend }) {
   );
 }
 
-// --- Check-in Form Summary ---
+// --- Check-in Summary (linear list, Typeform order) ---
 
-const CARD_ACCENTS = {
-  'Biggest wins this week': { border: 'var(--color-green)', bg: 'rgba(34, 197, 94, 0.05)' },
-  'Stress source': { border: 'var(--color-red)', bg: 'rgba(239, 68, 68, 0.05)' },
-  'Where do you need help': { border: 'var(--color-teal)', bg: 'rgba(35, 184, 184, 0.05)' },
-  'Upcoming events': { border: 'var(--color-amber)', bg: 'rgba(245, 158, 11, 0.05)' },
-};
+// Every field in exact Typeform order. Score questions show "7 / 10",
+// choice questions show the label, text questions show the answer.
+// Each conditional follow-up sits directly beneath its parent.
+const CHECKIN_FIELDS = [
+  { key: 'overall',             label: 'Overall performance',               type: 'score' },
+  { key: 'wins',                label: 'Biggest win this week',             type: 'text' },
+  { key: 'training',            label: 'Training / cardio',                 type: 'score' },
+  { key: 'trainingIssue',       label: 'What was the issue with training?', type: 'followup' },
+  { key: 'steps',               label: 'Step target',                       type: 'score' },
+  { key: 'stepIssue',           label: 'What was the issue with steps?',    type: 'followup' },
+  { key: 'nutrition',           label: 'Nutrition',                         type: 'score' },
+  { key: 'nutritionIssue',      label: 'What was the issue with nutrition?', type: 'followup' },
+  { key: 'nutritionInfoVsExec', label: 'Information or execution issue?',   type: 'followup' },
+  { key: 'daysOnPlan',          label: 'Days on plan',                      type: 'choice' },
+  { key: 'sleep',               label: 'Sleep',                             type: 'score' },
+  { key: 'sleepIssue',          label: 'What was the issue with sleep?',    type: 'followup' },
+  { key: 'digestion',           label: 'Digestion',                         type: 'score' },
+  { key: 'digestionIssue',      label: 'What was the issue with digestion?', type: 'followup' },
+  { key: 'stress',              label: 'Stress level',                      type: 'score' },
+  { key: 'stressSource',        label: 'Main source of stress?',            type: 'followup' },
+  { key: 'progressDirection',   label: 'Progress direction',                type: 'choice' },
+  { key: 'helpNeeded',          label: 'Where do you need help?',           type: 'text' },
+  { key: 'upcomingEvents',      label: 'Anything coming up this week?',     type: 'text' },
+];
 
-function FormSummaryCard({ title, text }) {
-  if (!text) return null;
-  const accent = CARD_ACCENTS[title] || { border: 'var(--color-border)', bg: 'transparent' };
+function CheckinSummary({ scores, formAnswers }) {
+  if (!scores && !formAnswers) return null;
+
+  function getValue(field) {
+    if (field.type === 'score') {
+      const raw = scores?.raw?.[field.key];
+      return raw != null ? `${raw} / 10` : null;
+    }
+    if (field.type === 'choice') {
+      if (field.key === 'daysOnPlan') return scores?.daysOnPlan || null;
+      if (field.key === 'progressDirection') return scores?.progressDirection || null;
+      return null;
+    }
+    // text or followup
+    return formAnswers?.[field.key] || null;
+  }
+
   return (
-    <div className="form-card" style={{ borderLeftColor: accent.border, backgroundColor: accent.bg }}>
-      <h4 className="form-card__title">{title}</h4>
-      <p className="form-card__text">{text}</p>
+    <div className="checkin-summary">
+      {CHECKIN_FIELDS.map(field => {
+        const value = getValue(field);
+        const unanswered = value == null;
+
+        return (
+          <div
+            key={field.key}
+            className={`checkin-summary__row${field.type === 'followup' ? ' checkin-summary__row--followup' : ''}${unanswered ? ' checkin-summary__row--muted' : ''}`}
+          >
+            <span className="checkin-summary__label">{field.label}</span>
+            <span className={`checkin-summary__value${unanswered ? ' checkin-summary__value--muted' : ''}`}>
+              {unanswered ? '\u2013' : value}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -320,14 +366,7 @@ function PreviousCheckins({ checkins, allFocus, clientId }) {
                         );
                       })}
                     </div>
-                    {ci.formAnswers && (
-                      <div className="form-cards" style={{ marginTop: 'var(--space-3)' }}>
-                        <FormSummaryCard title="Biggest wins this week" text={ci.formAnswers.wins} />
-                        <FormSummaryCard title="Stress source" text={ci.formAnswers.stressSource} />
-                        <FormSummaryCard title="Where do you need help" text={ci.formAnswers.helpNeeded} />
-                        <FormSummaryCard title="Upcoming events" text={ci.formAnswers.upcomingEvents} />
-                      </div>
-                    )}
+                    <CheckinSummary scores={ci.scores} formAnswers={ci.formAnswers} />
                     <PrevCheckinFocus
                       clientId={clientId}
                       cycleStart={ci.cycleStart}
@@ -1037,16 +1076,11 @@ function OverviewTab({ clientId }) {
         {!scores && <div className="empty-state">No check-in scores available</div>}
       </div>
 
-      {/* Check-in Form Summary */}
-      {formAnswers && (
+      {/* Check-in Summary */}
+      {(scores || formAnswers) && (
         <div className="overview-section">
           <h3 className="overview-section__title">Check-in Summary</h3>
-          <div className="form-cards">
-            <FormSummaryCard title="Biggest wins this week" text={formAnswers.wins} />
-            <FormSummaryCard title="Stress source" text={formAnswers.stressSource} />
-            <FormSummaryCard title="Where do you need help" text={formAnswers.helpNeeded} />
-            <FormSummaryCard title="Upcoming events" text={formAnswers.upcomingEvents} />
-          </div>
+          <CheckinSummary scores={scores} formAnswers={formAnswers} />
         </div>
       )}
 

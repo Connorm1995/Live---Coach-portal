@@ -206,34 +206,49 @@
 
 /* === Form Summary Cards === */
 
-.form-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
+/* === Check-in Summary (linear list) === */
+
+.checkin-summary {
+  display: flex;
+  flex-direction: column;
 }
 
-.form-card {
-  border-radius: 10px;
-  padding: var(--space-4) var(--space-5);
-  border-left: 3px solid var(--color-border);
+.checkin-summary__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-.form-card__title {
+.checkin-summary__row--followup {
+  padding-left: var(--space-4);
+}
+
+.checkin-summary__row--muted {
+  opacity: 0.4;
+}
+
+.checkin-summary__label {
   font-family: var(--font-body);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--color-slate);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: var(--space-2);
 }
 
-.form-card__text {
+.checkin-summary__value {
   font-family: var(--font-body);
-  font-size: 15px;
-  font-weight: 400;
+  font-size: 14px;
+  font-weight: 500;
   color: #2d3436;
-  line-height: 1.6;
+  text-align: right;
+  max-width: 60%;
+}
+
+.checkin-summary__value--muted {
+  font-size: 13px;
+  color: var(--color-slate);
+  font-weight: 400;
 }
 
 /* === Previous Check-ins === */

@@ -98,31 +98,36 @@ const PROGRESS_WEIGHTS = { 'Progressed': 5, 'Stayed the same': 3, 'Regressed': 1
 
 const SCORE_CATEGORIES = ['overall', 'training', 'steps', 'nutrition', 'sleep', 'digestion', 'stress'];
 
-const SCORE_KEYWORDS = {
-  overall: ['overall performance', 'overall'],
-  training: ['training', 'workout', 'exercise', 'gym'],
-  nutrition: ['nutrition', 'diet', 'eating', 'food', 'meals'],
-  steps: ['step', 'steps', 'step count', 'walking', 'movement'],
-  sleep: ['sleep', 'rest', 'hours in bed'],
-  digestion: ['digestion', 'gut', 'digestive', 'stomach', 'bloating'],
-  stress: ['stress', 'anxiety', 'mental health', 'mood'],
+// Field ref -> score category (from connor-weekly-checkin-reference.md)
+const FIELD_REF_TO_SCORE = {
+  '08a11882-5f58-44a8-9e70-5d108f2aaedc': 'overall',
+  '522e6339-ef63-49c7-9b95-4d925841afe2': 'training',
+  '33b74dae-ec78-4b11-a236-ef7639ae5473': 'steps',
+  '88b092a4-e251-47ce-a298-520ef4edc1cc': 'nutrition',
+  'b56a1664-564e-4046-a1f0-b4502c5c613e': 'sleep',
+  'b4ec8f22-da73-4b69-9d13-bbde511d7b5e': 'digestion',
+  '1f75d0a7-b810-4f00-821a-e8151e27d8fe': 'stress',
 };
 
-const TEXT_KEYWORDS = {
-  wins: ['wins', 'biggest win', 'proud', 'achievement', 'highlight'],
-  stressSource: ['stress source', 'source of stress', 'stressor', 'what caused stress', 'causing you stress'],
-  helpNeeded: ['help', 'support', 'need help', 'assistance', 'struggle'],
-  upcomingEvents: ['upcoming', 'events', 'plans', 'next week', 'coming up'],
+const FIELD_REF_DAYS_ON_PLAN = '87aa3c32-a515-4a76-a9d6-257a08bbb893';
+const FIELD_REF_PROGRESS     = '1a1768d8-ed8f-4780-aece-f06e9221e7ad';
+
+// Field ref -> text answer key (open text + all conditional follow-ups)
+const FIELD_REF_TO_TEXT = {
+  '72dfa035-75f0-4401-be78-84f8cb5da3cf': 'wins',
+  '6f1349a2-e67a-42e5-90ca-48752037f4c6': 'stressSource',
+  '0c8bb709-de48-480e-b4da-8232827200ae': 'helpNeeded',
+  '147c7a86-c8fd-4782-8f45-0995a5dad8e7': 'upcomingEvents',
+  '2f62d196-6bc3-4341-a802-a94d617fd28a': 'trainingIssue',
+  'bb208412-8ca5-4467-8602-0ad2d1f7f3ad': 'stepIssue',
+  '6cdaac53-9eae-4322-a8cc-7a3e0ad6eba3': 'nutritionIssue',
+  'f7145682-1cf2-4a81-8206-f899673ff883': 'nutritionInfoVsExec',
+  'c26c1eb4-ce78-4f8d-9542-c3d0a168ae94': 'sleepIssue',
+  'c3d0c143-ea9e-4f0a-a8cb-9306e24c1517': 'digestionIssue',
 };
 
-function matchCategory(fieldTitle, keywordMap) {
-  if (!fieldTitle) return null;
-  const lower = fieldTitle.toLowerCase();
-  for (const [cat, keywords] of Object.entries(keywordMap)) {
-    if (keywords.some(kw => lower.includes(kw))) return cat;
-  }
-  return null;
-}
+// All known text keys - parseFormAnswers returns null for unanswered fields
+const ALL_TEXT_KEYS = Object.values(FIELD_REF_TO_TEXT);
 
 function toWeighted(category, rawValue) {
   const bracket = WEIGHT_BRACKETS[category];
@@ -141,25 +146,22 @@ function parseScores(formData) {
   let progressWeighted = null;
 
   for (const answer of formData) {
-    const ft = answer.field?.type;
-    const title = answer.field?.title || answer.field?.ref || '';
+    const ref = answer.field?.ref;
 
-    // Scale questions (opinion_scale 1-10)
-    if (ft === 'opinion_scale' || ft === 'rating' || answer.type === 'number') {
-      const cat = matchCategory(title, SCORE_KEYWORDS);
-      if (cat && answer.number != null) {
-        raw[cat] = answer.number;
-        weighted[cat] = toWeighted(cat, answer.number);
-      }
+    // Scale questions (opinion_scale 1-10) - lookup by field ref
+    const cat = FIELD_REF_TO_SCORE[ref];
+    if (cat && answer.number != null) {
+      raw[cat] = answer.number;
+      weighted[cat] = toWeighted(cat, answer.number);
     }
 
-    // Choice questions (days on plan, progress direction)
+    // Choice questions - lookup by field ref
     if (answer.type === 'choice' && answer.choice?.label) {
       const label = answer.choice.label;
-      if (title.toLowerCase().includes('on plan') || title.toLowerCase().includes('days')) {
+      if (ref === FIELD_REF_DAYS_ON_PLAN) {
         daysOnPlan = label;
         daysOnPlanWeighted = DAYS_ON_PLAN_WEIGHTS[label] || null;
-      } else if (title.toLowerCase().includes('progress') || title.toLowerCase().includes('regress')) {
+      } else if (ref === FIELD_REF_PROGRESS) {
         progressDirection = label;
         progressWeighted = PROGRESS_WEIGHTS[label] || null;
       }
@@ -200,18 +202,23 @@ function parseScores(formData) {
 function parseFormAnswers(formData) {
   if (!formData || !Array.isArray(formData)) return null;
 
+  // Start with every known text key set to null
   const answers = {};
+  for (const key of ALL_TEXT_KEYS) answers[key] = null;
+
   for (const answer of formData) {
-    if (answer.type === 'text' && (answer.field?.type === 'long_text' || answer.field?.type === 'short_text')) {
-      const title = answer.field?.title || answer.field?.ref || '';
-      // Skip the name field (first short_text)
-      if (answer.field?.type === 'short_text') continue;
-      const cat = matchCategory(title, TEXT_KEYWORDS);
-      if (cat) answers[cat] = answer.text;
+    const ref = answer.field?.ref;
+    const cat = FIELD_REF_TO_TEXT[ref];
+    if (cat && answer.type === 'text') {
+      answers[cat] = answer.text || null;
+    }
+    // Also capture multi-choice text (helpNeeded uses 'choices' type)
+    if (cat && answer.type === 'choices' && answer.choices?.labels) {
+      answers[cat] = answer.choices.labels.join(', ') || null;
     }
   }
 
-  return Object.keys(answers).length > 0 ? answers : null;
+  return answers;
 }
 
 // --- Trainerize data parsers ---
