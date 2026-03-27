@@ -507,7 +507,6 @@ function CalendarPanel({ calendar, calendarMonth, calendarYear, setCalendarMonth
           // Categorize activities
           const strengthSessions = activities.filter(a => a.type === 'strength');
           const cardioSessions = activities.filter(a => a.type === 'cardio' || a.type === 'walking');
-          const hasBodyStats = dayData?.bodyStatsLogged;
           const hasNutrition = dayData?.calories > 0;
           const sleepHours = dayData?.sleep;
 
