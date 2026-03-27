@@ -8,10 +8,9 @@ import ClientManager from './components/ClientManager';
 import MessagesTab from './components/MessagesTab';
 import ScheduledPostsTab from './components/ScheduledPostsTab';
 import SettingsTab from './components/SettingsTab';
-import OverviewTab from './components/OverviewTab';
+import ClientOverviewTab from './components/ClientOverviewTab';
 import TrainingTab from './components/TrainingTab';
 import NutritionTab from './components/NutritionTab';
-import CalendarTab from './components/CalendarTab';
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
 
@@ -19,7 +18,6 @@ const CLIENT_TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'training', label: 'Training' },
   { key: 'nutrition', label: 'Nutrition' },
-  { key: 'calendar', label: 'Calendar' },
   { key: 'recovery', label: 'Recovery' },
 ];
 
@@ -97,6 +95,19 @@ function App() {
     setDetailRefresh((n) => n + 1);
   }, []);
 
+  // Optimistic phase update
+  const handlePhaseChange = useCallback((newPhase) => {
+    setClientDetail(prev => prev ? { ...prev, currentPhase: newPhase } : prev);
+    fetch(`${API_BASE}/api/clients/${selectedClientId}/phase`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_phase: newPhase }),
+    }).catch(err => {
+      console.error('Failed to update phase:', err);
+      setDetailRefresh(n => n + 1);
+    });
+  }, [selectedClientId]);
+
   return (
     <div className="app">
       <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
@@ -106,6 +117,10 @@ function App() {
             client={clientDetail}
             onHubToggle={toggleHub}
             onLoomOpen={openLoom}
+            onPhaseChange={handlePhaseChange}
+            tabs={CLIENT_TABS}
+            activeClientTab={clientTab}
+            onClientTabChange={setClientTab}
           />
           <CheckinHub
             isOpen={hubOpen}
@@ -121,19 +136,6 @@ function App() {
               onSent={refreshClientDetail}
             />
           )}
-          {selectedClientId && (
-            <nav className="client-tabs">
-              {CLIENT_TABS.map(tab => (
-                <button
-                  key={tab.key}
-                  className={`client-tabs__tab${clientTab === tab.key ? ' client-tabs__tab--active' : ''}${tab.key === 'recovery' ? ' client-tabs__tab--disabled' : ''}`}
-                  onClick={() => tab.key !== 'recovery' && setClientTab(tab.key)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
-          )}
           <main className="content-area">
             {!selectedClientId && (
               <div className="content-area__empty">
@@ -141,16 +143,13 @@ function App() {
               </div>
             )}
             {selectedClientId && clientTab === 'overview' && (
-              <OverviewTab clientId={selectedClientId} />
+              <ClientOverviewTab clientId={selectedClientId} />
             )}
             {selectedClientId && clientTab === 'training' && (
               <TrainingTab clientId={selectedClientId} />
             )}
             {selectedClientId && clientTab === 'nutrition' && (
               <NutritionTab clientId={selectedClientId} />
-            )}
-            {selectedClientId && clientTab === 'calendar' && (
-              <CalendarTab clientId={selectedClientId} />
             )}
             {selectedClientId && clientTab === 'recovery' && (
               <div className="content-area__empty">Recovery - coming soon</div>

@@ -3,14 +3,14 @@
  *
  * DB-backed Trainerize data layer. Checks PostgreSQL first, only calls the
  * Trainerize API when data is missing or stale (current-week data older than
- * 5 minutes). Historical data (before current Monday) is never re-fetched.
+ * 30 minutes). Historical data (before current Monday) is never re-fetched.
  */
 
 const pool = require('../db/pool');
 const { trainerizePost } = require('./trainerize');
 
 const COACH_ID = 1;
-const FRESH_TTL_MS = 5 * 60 * 1000; // 5 minutes for current-week data
+const FRESH_TTL_MS = 30 * 60 * 1000; // 30 minutes for current-week data
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -463,31 +463,31 @@ async function getCalendarData(clientId, tid, startDate, endDate) {
   const rangeIsHistorical = endDate < currentMonday;
 
   // Check if we have workouts+cardio stored for this range
-  const existingWorkouts = await pool.query(
-    `SELECT MIN(fetched_at) AS oldest FROM client_workouts
-     WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4`,
-    [clientId, COACH_ID, startDate, endDate]
-  );
-  const existingCardio = await pool.query(
-    `SELECT MIN(fetched_at) AS oldest FROM client_cardio
-     WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4`,
-    [clientId, COACH_ID, startDate, endDate]
-  );
+  const [existingWorkouts, existingCardio] = await Promise.all([
+    pool.query(
+      `SELECT MIN(fetched_at) AS oldest, COUNT(*) AS cnt FROM client_workouts
+       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4`,
+      [clientId, COACH_ID, startDate, endDate]
+    ),
+    pool.query(
+      `SELECT MIN(fetched_at) AS oldest, COUNT(*) AS cnt FROM client_cardio
+       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4`,
+      [clientId, COACH_ID, startDate, endDate]
+    ),
+  ]);
 
-  const hasWorkoutData = existingWorkouts.rows[0]?.oldest != null;
-  const hasCardioData = existingCardio.rows[0]?.oldest != null;
+  const hasWorkoutData = parseInt(existingWorkouts.rows[0]?.cnt) > 0;
+  const hasCardioData = parseInt(existingCardio.rows[0]?.cnt) > 0;
+  const hasAnyData = hasWorkoutData || hasCardioData;
   const oldestFetch = existingWorkouts.rows[0]?.oldest || existingCardio.rows[0]?.oldest;
+  const dataIsFresh = hasAnyData && (rangeIsHistorical || isFresh(oldestFetch));
 
-  // Calendar data includes scheduled items too, which change over time.
-  // Only serve from DB for historical ranges where we've stored data.
-  // For current data, always fetch fresh from Trainerize to get scheduled items.
-  if ((hasWorkoutData || hasCardioData) && rangeIsHistorical) {
-    // Return from DB is tricky - calendar response has a specific shape.
-    // We still need to call Trainerize for the full calendar structure (scheduled items).
-    // So we only use DB for workout/cardio DETAILS, not the calendar listing itself.
+  // Serve from DB if data exists and is fresh (historical = always fresh, current = within TTL)
+  if (dataIsFresh) {
+    return buildCalendarFromDB(clientId, startDate, endDate);
   }
 
-  // Always fetch the calendar listing from Trainerize (it includes scheduled items)
+  // Otherwise fetch from Trainerize and store
   const result = await trainerizePost('/calendar/getList', {
     userID: Number(tid), startDate, endDate, unitWeight: 'kg',
   }, { label: 'Store' });
@@ -526,6 +526,91 @@ async function getCalendarData(clientId, tid, startDate, endDate) {
   }
 
   return raw;
+}
+
+// Reconstruct the Trainerize calendar shape { calendar: [{ date, items }] } from DB rows.
+// Pulls from 4 tables: workouts, cardio, body stats, nutrition.
+// IDs: workouts/cardio use their trainerize_id (positive).
+//      Body stats use -row.id, nutrition use -(100000 + row.id) to guarantee no collisions.
+async function buildCalendarFromDB(clientId, startDate, endDate) {
+  const [workoutRows, cardioRows, bodyStatRows, nutritionRows] = await Promise.all([
+    pool.query(
+      `SELECT date::text, name, status, type, trainerize_id FROM client_workouts
+       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
+       ORDER BY date, id`,
+      [clientId, COACH_ID, startDate, endDate]
+    ),
+    pool.query(
+      `SELECT date::text, name, status, trainerize_id FROM client_cardio
+       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
+       ORDER BY date, id`,
+      [clientId, COACH_ID, startDate, endDate]
+    ),
+    pool.query(
+      `SELECT id, date::text, body_weight FROM client_body_stats
+       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
+         AND body_weight IS NOT NULL
+       ORDER BY date`,
+      [clientId, COACH_ID, startDate, endDate]
+    ),
+    pool.query(
+      `SELECT id, date::text, calories, protein FROM client_nutrition
+       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
+         AND calories IS NOT NULL
+       ORDER BY date`,
+      [clientId, COACH_ID, startDate, endDate]
+    ),
+  ]);
+
+  // Group by date
+  const dayMap = {};
+  const allDates = dateRange(startDate, endDate);
+  for (const d of allDates) dayMap[d] = [];
+
+  for (const row of workoutRows.rows) {
+    dayMap[row.date] = dayMap[row.date] || [];
+    dayMap[row.date].push({
+      id: row.trainerize_id,
+      title: row.name,
+      type: row.type || 'workout',
+      status: row.status,
+    });
+  }
+
+  for (const row of cardioRows.rows) {
+    dayMap[row.date] = dayMap[row.date] || [];
+    dayMap[row.date].push({
+      id: row.trainerize_id,
+      title: row.name,
+      type: 'cardio',
+      status: row.status,
+    });
+  }
+
+  for (const row of bodyStatRows.rows) {
+    dayMap[row.date] = dayMap[row.date] || [];
+    dayMap[row.date].push({
+      id: -row.id,
+      title: `${parseFloat(row.body_weight)} kg`,
+      type: 'bodyStat',
+      status: 'tracked',
+    });
+  }
+
+  for (const row of nutritionRows.rows) {
+    dayMap[row.date] = dayMap[row.date] || [];
+    dayMap[row.date].push({
+      id: -(100000 + row.id),
+      title: 'Nutrition tracked',
+      type: 'nutrition',
+      status: 'tracked',
+      calories: parseFloat(row.calories),
+      protein: row.protein ? parseFloat(row.protein) : null,
+    });
+  }
+
+  const calendar = Object.entries(dayMap).map(([date, items]) => ({ date, items }));
+  return { calendar };
 }
 
 // ---------------------------------------------------------------------------

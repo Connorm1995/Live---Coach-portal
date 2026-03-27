@@ -163,7 +163,7 @@ function CheckinHub({ isOpen, onClose, onSelectClient }) {
             <div
               className="hub-row"
               key={row.checkinId || row.clientId || i}
-              onClick={() => onSelectClient && onSelectClient(row.clientId, 'calendar')}
+              onClick={() => onSelectClient && onSelectClient(row.clientId, 'overview')}
               style={{ cursor: onSelectClient ? 'pointer' : undefined }}
             >
               <div className="hub-row__left">

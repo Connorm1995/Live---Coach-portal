@@ -15,6 +15,10 @@
 - Soft delete only on scheduled posts - never hard delete.
 - Update docs/logic.md whenever new logic decisions are made, including timezone handling, scheduler mechanisms, delete/recovery patterns, and API integration details.
 
+## Workflow
+
+- Never apply changes mid-conversation without explicit confirmation. "Want me to apply?" requires a yes before proceeding.
+
 ## Security
 
 - Never hardcode secrets or API keys in source files. All credentials live in the .env file.

@@ -37,7 +37,7 @@ router.get('/:id/detail', async (req, res) => {
     const result = await pool.query(`
       SELECT
         cl.id, cl.name, cl.email, cl.program, cl.trainerize_id,
-        cl.current_phase, cl.mfp_url, cl.created_at, cl.trainerize_joined_at,
+        cl.current_phase, cl.mfp_url, cl.objectives, cl.created_at, cl.trainerize_joined_at,
         (SELECT MAX(c.submitted_at) FROM checkins c WHERE c.client_id = cl.id) AS last_checkin_at
       FROM clients cl
       WHERE cl.id = $1 AND cl.coach_id = $2
@@ -69,6 +69,7 @@ router.get('/:id/detail', async (req, res) => {
         program: client.program,
         currentPhase: client.current_phase,
         mfpUrl: client.mfp_url,
+        objectives: client.objectives,
         joinedAt: client.trainerize_joined_at || client.created_at,
         lastCheckinAt: client.last_checkin_at,
         sessionCount,
@@ -112,7 +113,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, program, trainerize_id, current_phase, mfp_url } = req.body;
+    const { name, program, trainerize_id, current_phase, mfp_url, objectives } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Name is required' });
@@ -130,11 +131,11 @@ router.put('/:id', async (req, res) => {
 
     const result = await pool.query(
       `UPDATE clients
-       SET name = $1, program = $2, trainerize_id = $3, current_phase = $4, mfp_url = $8,
+       SET name = $1, program = $2, trainerize_id = $3, current_phase = $4, mfp_url = $8, objectives = $9,
            pending_setup = CASE WHEN $7 THEN false ELSE pending_setup END
        WHERE id = $5 AND coach_id = $6
-       RETURNING id, name, email, program, trainerize_id, pending_setup, active, current_phase, mfp_url, created_at`,
-      [name.trim(), program || null, trainerize_id?.trim() || null, current_phase || null, id, COACH_ID, !!program, mfp_url?.trim() || null]
+       RETURNING id, name, email, program, trainerize_id, pending_setup, active, current_phase, mfp_url, objectives, created_at`,
+      [name.trim(), program || null, trainerize_id?.trim() || null, current_phase || null, id, COACH_ID, !!program, mfp_url?.trim() || null, objectives != null ? objectives : null]
     );
 
     if (result.rows.length === 0) {
@@ -145,6 +146,29 @@ router.put('/:id', async (req, res) => {
   } catch (err) {
     console.error('[Clients] Error updating client:', err.message);
     res.status(500).json({ error: 'Failed to update client' });
+  }
+});
+
+// PATCH /api/clients/:id/phase — update training phase only
+router.patch('/:id/phase', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { current_phase } = req.body;
+    const validPhases = ['recomp', 'fat_loss', 'building', 'maintenance'];
+    if (current_phase != null && current_phase !== '' && !validPhases.includes(current_phase)) {
+      return res.status(400).json({ error: 'Invalid phase' });
+    }
+    const result = await pool.query(
+      `UPDATE clients SET current_phase = $1
+       WHERE id = $2 AND coach_id = $3
+       RETURNING id, current_phase`,
+      [current_phase || null, id, COACH_ID]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
+    res.json({ current_phase: result.rows[0].current_phase });
+  } catch (err) {
+    console.error('[Clients] Error updating phase:', err.message);
+    res.status(500).json({ error: 'Failed to update phase' });
   }
 });
 

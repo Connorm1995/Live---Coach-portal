@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import './CalendarTab.css';
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
@@ -87,13 +87,14 @@ function CalendarTab({ clientId }) {
   const [loading, setLoading] = useState(false);
   const [tooltip, setTooltip] = useState(null);
   const tooltipRef = useRef(null);
+  const loadedClientRef = useRef(null);
 
   const todayStr = getTodayStr();
 
   // Fetch calendar data
-  const fetchData = useCallback(async () => {
+  const fetchCalendarData = useCallback(async (showLoading) => {
     if (!clientId) return;
-    setLoading(true);
+    if (showLoading) setLoading(true);
     try {
       const monthStr = toMonthStr(year, month);
       const res = await fetch(`${API_BASE}/api/calendar/${clientId}?month=${monthStr}`);
@@ -104,13 +105,25 @@ function CalendarTab({ clientId }) {
       console.error('Failed to fetch calendar:', err);
       setData({ days: [] });
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [clientId, year, month]);
 
+  // Initial load when clientId changes - show loading spinner
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!clientId) return;
+    loadedClientRef.current = clientId;
+    fetchCalendarData(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
+
+  // Month/year changes - silently update without blanking the page
+  useEffect(() => {
+    if (loadedClientRef.current === clientId) {
+      fetchCalendarData(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month]);
 
   // Close tooltip on outside click
   useEffect(() => {

@@ -11,6 +11,7 @@ const nutritionRoutes = require('./routes/nutrition');
 const calendarRoutes = require('./routes/calendar');
 const messageRoutes = require('./routes/messages');
 const settingsRoutes = require('./routes/settings');
+const clientOverviewRoutes = require('./routes/client-overview');
 const { startScheduler } = require('./lib/scheduler');
 
 const app = express();
@@ -36,6 +37,7 @@ app.use('/api/nutrition', nutritionRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/client-overview', clientOverviewRoutes);
 app.use('/webhooks', webhookRoutes);
 
 app.get('/health', (req, res) => {

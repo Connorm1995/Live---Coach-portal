@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './ClientHeader.css';
 
 const PHASE_LABELS = {
@@ -26,10 +26,33 @@ function formatTenure(joinedAt) {
   return rem > 0 ? `${years}y ${rem}m` : `${years}y`;
 }
 
-function ClientHeader({ client, onHubToggle, onLoomOpen }) {
+const PHASE_COLORS = {
+  fat_loss: { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
+  building: { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' },
+  recomp: { bg: '#f0fdfa', color: '#0d9488', border: '#99f6e4' },
+  maintenance: { bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' },
+};
+
+function ClientHeader({ client, onHubToggle, onLoomOpen, onPhaseChange, tabs, activeClientTab, onClientTabChange }) {
+  const [phaseOpen, setPhaseOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!phaseOpen) return;
+    const handleClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setPhaseOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [phaseOpen]);
+
   const lastCheckin = formatDate(client?.lastCheckinAt);
   const tenure = formatTenure(client?.joinedAt);
   const phase = client?.currentPhase ? PHASE_LABELS[client.currentPhase] : null;
+  const phaseStyle = client?.currentPhase ? PHASE_COLORS[client.currentPhase] : null;
   const sessions = client?.sessionCount;
 
   return (
@@ -56,25 +79,63 @@ function ClientHeader({ client, onHubToggle, onLoomOpen }) {
           </svg>
         </button>
         <div className="client-header__info">
-          <h1 className="client-header__name">{client?.name || 'Select a client'}</h1>
+          <div className="client-header__name-row">
+            <h1 className="client-header__name">{client?.name || 'Select a client'}</h1>
+            {client && (
+              <div className="client-header__phase-wrap" ref={dropdownRef}>
+                <button
+                  className="client-header__phase-prominent"
+                  style={phaseStyle ? { background: phaseStyle.bg, color: phaseStyle.color, borderColor: phaseStyle.border } : undefined}
+                  onClick={() => setPhaseOpen(!phaseOpen)}
+                >
+                  {phase || 'Set Phase'}
+                  <span className="client-header__phase-caret">{phaseOpen ? '\u25B2' : '\u25BC'}</span>
+                </button>
+                {phaseOpen && (
+                  <div className="client-header__phase-dropdown">
+                    {Object.entries(PHASE_LABELS).map(([val, label]) => (
+                      <button
+                        key={val}
+                        className={`client-header__phase-option${client?.currentPhase === val ? ' client-header__phase-option--active' : ''}`}
+                        onClick={() => { onPhaseChange(val); setPhaseOpen(false); }}
+                      >
+                        <span className="client-header__phase-dot" style={{ background: PHASE_COLORS[val].color }} />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {client?.objectives && (
+            <p className="client-header__objectives">{client.objectives}</p>
+          )}
           {client && (
             <p className="client-header__meta">
               {lastCheckin && <>Last check-in: {lastCheckin}</>}
               {tenure && <>{lastCheckin ? ' \u00B7 ' : ''}{tenure}</>}
-              {phase && (
-                <>
-                  {(lastCheckin || tenure) ? ' \u00B7 ' : ''}
-                  <span className="client-header__phase-badge">{phase}</span>
-                </>
-              )}
               {sessions != null && (
-                <>{(lastCheckin || tenure || phase) ? ' \u00B7 ' : ''}{sessions} sessions</>
+                <>{(lastCheckin || tenure) ? ' \u00B7 ' : ''}{sessions} sessions</>
               )}
             </p>
           )}
         </div>
       </div>
       <div className="client-header__right">
+        {tabs && tabs.length > 0 && (
+          <nav className="client-header__tabs">
+            {tabs.map(tab => (
+              <button
+                key={tab.key}
+                className={`client-header__tab${activeClientTab === tab.key ? ' client-header__tab--active' : ''}`}
+                onClick={() => onClientTabChange(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        )}
         <button
           className="client-header__loom-trigger"
           aria-label="Send Loom Feedback"

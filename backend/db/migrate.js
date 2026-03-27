@@ -43,6 +43,11 @@ async function migrate() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS trainerize_joined_at TIMESTAMPTZ
     `);
 
+    // Add objectives column (free-text client objectives)
+    await client.query(`
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS objectives TEXT
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS checkins (
         id SERIAL PRIMARY KEY,
