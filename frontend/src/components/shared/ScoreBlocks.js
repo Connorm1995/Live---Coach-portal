@@ -85,15 +85,16 @@ export function ScoreBlock({ label, value, trend, trendKey, isStress }) {
 
   return (
     <div
-      className="score-block"
-      style={{ borderColor: hex }}
+      className="score-badge"
       onMouseEnter={() => setShowTrend(true)}
       onMouseLeave={() => setShowTrend(false)}
     >
-      <span className="score-block__value" style={{ color: hex }}>{value ?? '-'}</span>
-      <span className="score-block__label">{label}</span>
+      <div className="score-badge__circle" style={{ background: hex }}>
+        {value ?? '-'}
+      </div>
+      <span className="score-badge__label">{label}</span>
       {showTrend && trend && trend.length > 1 && (
-        <div className="score-block__trend">
+        <div className="score-badge__trend">
           <ResponsiveContainer width={280} height={120}>
             <LineChart data={trend} margin={{ top: 16, right: 12, bottom: 4, left: 12 }}>
               <XAxis
@@ -116,7 +117,7 @@ export function ScoreBlock({ label, value, trend, trendKey, isStress }) {
               />
             </LineChart>
           </ResponsiveContainer>
-          <span className="score-block__trend-label">Last {trend.length} weeks</span>
+          <span className="score-badge__trend-label">Last {trend.length} weeks</span>
         </div>
       )}
     </div>
@@ -131,7 +132,6 @@ export function TotalBadge({ total, trend }) {
   return (
     <div
       className="total-badge"
-      style={{ borderColor: hex }}
       onMouseEnter={() => setShowTrend(true)}
       onMouseLeave={() => setShowTrend(false)}
     >

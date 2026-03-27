@@ -5,7 +5,7 @@
   --color-teal: #23b8b8;
   --color-teal-bright: #12dacb;
   --color-white: #ffffff;
-  --color-off-white: #f5f6f7;
+  --color-off-white: #f8f9fa;
   --color-border: #e2e5e8;
 
   /* Status colours — reserved */
@@ -26,7 +26,7 @@
   --space-10: 80px;
 
   /* Fonts */
-  --font-display: 'Syne', sans-serif;
+  --font-display: 'DM Sans', sans-serif;
   --font-body: 'DM Sans', sans-serif;
 }
 
@@ -44,11 +44,11 @@ html, body, #root {
 
 body {
   font-family: var(--font-body);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1.5;
-  color: var(--color-black);
-  background: var(--color-white);
+  color: #1a1a2e;
+  background: var(--color-off-white);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
