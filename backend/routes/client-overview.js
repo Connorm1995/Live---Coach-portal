@@ -291,44 +291,65 @@ function buildWeightComparison3Weeks(weightEntries, prevWeek) {
 async function buildTrainingCompliance(clientId, complianceRange) {
   const now = new Date();
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - complianceRange);
 
-  const startDate = start.toISOString().split('T')[0];
+  // Strength: per-week counts for the last 4 weeks (28 days)
+  const strengthStart = new Date(end);
+  strengthStart.setUTCDate(strengthStart.getUTCDate() - 28);
+  const strengthStartDate = strengthStart.toISOString().split('T')[0];
   const endDate = end.toISOString().split('T')[0];
 
-  // Query completed strength sessions from client_workouts in the date range
-  const workoutResult = await pool.query(
-    `SELECT COUNT(*) AS completed FROM client_workouts
+  const strengthResult = await pool.query(
+    `SELECT DATE_TRUNC('week', date)::date AS week_start, COUNT(*) AS count
+     FROM client_workouts
      WHERE client_id = $1 AND coach_id = $2
        AND date >= $3 AND date <= $4
-       AND status IN ('tracked', 'checkedIn')`,
-    [clientId, COACH_ID, startDate, endDate]
+       AND status IN ('tracked', 'checkedIn')
+     GROUP BY week_start
+     ORDER BY week_start`,
+    [clientId, COACH_ID, strengthStartDate, endDate]
   );
 
-  // Query programmed workouts (all statuses) from client_workouts
-  const programmedResult = await pool.query(
-    `SELECT COUNT(*) AS programmed FROM client_workouts
-     WHERE client_id = $1 AND coach_id = $2
-       AND date >= $3 AND date <= $4`,
-    [clientId, COACH_ID, startDate, endDate]
-  );
+  // Build 4-week array with zero-fill for missing weeks
+  const strengthWeekly = [];
+  const weekCursor = new Date(strengthStart);
+  // Align to Monday
+  const dayOfWeek = weekCursor.getUTCDay();
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  weekCursor.setUTCDate(weekCursor.getUTCDate() + mondayOffset);
 
-  // Count cardio sessions from client_cardio
+  for (let i = 0; i < 4; i++) {
+    const ws = weekCursor.toISOString().split('T')[0];
+    const match = strengthResult.rows.find(r => r.week_start.toISOString().split('T')[0] === ws);
+    strengthWeekly.push({
+      weekStart: ws,
+      count: match ? parseInt(match.count, 10) : 0,
+    });
+    weekCursor.setUTCDate(weekCursor.getUTCDate() + 7);
+  }
+
+  // Cardio: individual sessions from last 14 days
+  const cardioStart = new Date(end);
+  cardioStart.setUTCDate(cardioStart.getUTCDate() - 14);
+  const cardioStartDate = cardioStart.toISOString().split('T')[0];
+
   const cardioResult = await pool.query(
-    `SELECT COUNT(*) AS cardio FROM client_cardio
+    `SELECT date, name, duration_seconds, distance
+     FROM client_cardio
      WHERE client_id = $1 AND coach_id = $2
        AND date >= $3 AND date <= $4
-       AND status IN ('tracked', 'checkedIn')`,
-    [clientId, COACH_ID, startDate, endDate]
+       AND status IN ('tracked', 'checkedIn')
+     ORDER BY date DESC`,
+    [clientId, COACH_ID, cardioStartDate, endDate]
   );
 
   return {
-    weightSessions: {
-      completed: parseInt(workoutResult.rows[0].completed, 10),
-      programmed: parseInt(programmedResult.rows[0].programmed, 10),
-    },
-    cardioSessions: parseInt(cardioResult.rows[0].cardio, 10),
+    strengthWeekly,
+    cardioSessions: cardioResult.rows.map(r => ({
+      date: r.date.toISOString().split('T')[0],
+      name: r.name,
+      durationSeconds: r.duration_seconds,
+      distance: r.distance ? parseFloat(r.distance) : null,
+    })),
     range: complianceRange,
   };
 }
@@ -975,7 +996,7 @@ router.get('/:id/workout/:workoutId', async (req, res) => {
 
     // Parse exercise data from the detail_json
     const exercises = (detail.exercises || []).map(ex => ({
-      name: ex.name || ex.exerciseName || 'Unknown',
+      name: ex.def?.name || ex.name || ex.exerciseName || 'Unknown',
       sets: (ex.stats || []).map(s => ({
         reps: s.reps != null ? s.reps : null,
         weight: s.weight != null ? s.weight : null,

@@ -349,18 +349,19 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
           <div className="client-overview__overlay-activities">
             {activities.map((a, ai) => {
               const isStrength = a.type === 'strength';
-              const isSelected = isStrength && selectedWorkoutId === a.workoutId;
+              const wId = a.workoutId || a.id;
+              const isSelected = isStrength && selectedWorkoutId === wId;
               return (
                 <div key={ai} className="client-overview__overlay-activity">
                   <div
                     className={`client-overview__overlay-activity-row${isStrength ? ' client-overview__overlay-activity-row--clickable' : ''}`}
-                    onClick={isStrength && a.workoutId ? () => fetchWorkout(a.workoutId) : undefined}
+                    onClick={isStrength && wId ? () => fetchWorkout(wId) : undefined}
                   >
                     <span className={`client-overview__overlay-dot client-overview__overlay-dot--${a.type}`} />
                     <span className="client-overview__overlay-name">{a.name}</span>
                     {a.duration && <span className="client-overview__overlay-meta">{a.duration}</span>}
                     {a.distance && <span className="client-overview__overlay-meta">{a.distance}</span>}
-                    {isStrength && a.workoutId && (
+                    {isStrength && wId && (
                       <span className="client-overview__overlay-expand">{isSelected ? '\u25B2' : '\u25BC'}</span>
                     )}
                   </div>
@@ -373,18 +374,23 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
                         <thead>
                           <tr>
                             <th>Exercise</th>
+                            <th>Set</th>
                             <th>Weight</th>
                             <th>Reps</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {(workoutDetail.exercises || []).map((ex, ei) => (
-                            <tr key={ei}>
-                              <td>{ex.name}</td>
-                              <td>{ex.weight != null ? `${ex.weight} kg` : '-'}</td>
-                              <td>{ex.reps != null ? ex.reps : '-'}</td>
-                            </tr>
-                          ))}
+                          {(workoutDetail.exercises || []).flatMap((ex, ei) => {
+                            const sets = ex.sets && ex.sets.length > 0 ? ex.sets : [{ reps: null, weight: null }];
+                            return sets.map((s, si) => (
+                              <tr key={`${ei}-${si}`} className={si === 0 ? 'client-overview__overlay-table-first' : ''}>
+                                <td>{si === 0 ? ex.name : ''}</td>
+                                <td>{sets.length > 1 ? si + 1 : '-'}</td>
+                                <td>{s.weight != null ? `${s.weight} kg` : '-'}</td>
+                                <td>{s.reps != null ? s.reps : '-'}</td>
+                              </tr>
+                            ));
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -698,42 +704,83 @@ function SleepGraph({ data, sleepMode, setSleepMode }) {
   );
 }
 
-// ─── TrainingCompliance (with 30/60d toggle) ───────────────────────
+// ─── Strength Sessions (4-week bar blocks) ─────────────────────────
 
-function TrainingComplianceSection({ data, complianceRange, setComplianceRange }) {
-  const { weightSessions, cardioSessions } = data || {};
+function StrengthSessionsSection({ data }) {
+  const weeks = data?.strengthWeekly || [];
+  const maxCount = Math.max(...weeks.map(w => w.count), 1);
 
   return (
     <div className="client-overview__chart-section">
-      <div className="client-overview__chart-header">
-        <h3 className="client-overview__chart-title">Training Compliance</h3>
-        <div className="client-overview__toggle-group">
-          <button
-            className={`client-overview__toggle-btn${complianceRange === 30 ? ' client-overview__toggle-btn--active' : ''}`}
-            onClick={() => setComplianceRange(30)}
-          >
-            30d
-          </button>
-          <button
-            className={`client-overview__toggle-btn${complianceRange === 60 ? ' client-overview__toggle-btn--active' : ''}`}
-            onClick={() => setComplianceRange(60)}
-          >
-            60d
-          </button>
+      <h3 className="client-overview__chart-title">Strength Sessions</h3>
+      {weeks.length === 0 ? (
+        <div className="client-overview__empty">No strength data</div>
+      ) : (
+        <div className="strength-weeks">
+          {weeks.map((w, i) => {
+            const pct = (w.count / maxCount) * 100;
+            const label = i === weeks.length - 1
+              ? 'This wk'
+              : `${weeks.length - 1 - i} wk ago`;
+            return (
+              <div key={w.weekStart} className="strength-weeks__block">
+                <div className="strength-weeks__bar-track">
+                  <div
+                    className="strength-weeks__bar-fill"
+                    style={{ height: `${pct}%` }}
+                  />
+                </div>
+                <span className="strength-weeks__count">{w.count}</span>
+                <span className="strength-weeks__label">{label}</span>
+              </div>
+            );
+          })}
         </div>
-      </div>
-      <div className="client-overview__compliance-row">
-        <div className="client-overview__compliance-stat">
-          <span className="client-overview__compliance-value">
-            {weightSessions?.completed ?? 0}/{weightSessions?.programmed ?? 0}
-          </span>
-          <span className="client-overview__compliance-label">Weight sessions</span>
+      )}
+    </div>
+  );
+}
+
+// ─── Cardio Sessions (last 2 weeks list) ────────────────────────────
+
+function CardioSessionsSection({ data }) {
+  const raw = data?.cardioSessions;
+  const sessions = Array.isArray(raw) ? raw : [];
+
+  const fmtDuration = (sec) => {
+    if (!sec) return null;
+    const m = Math.round(sec / 60);
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+  };
+
+  const fmtDist = (d) => {
+    if (!d) return null;
+    return d >= 1 ? `${d.toFixed(1)} km` : `${Math.round(d * 1000)} m`;
+  };
+
+  return (
+    <div className="client-overview__chart-section">
+      <h3 className="client-overview__chart-title">Cardio Sessions</h3>
+      {sessions.length === 0 ? (
+        <div className="client-overview__empty">No cardio data</div>
+      ) : (
+        <div className="cardio-list">
+          {sessions.map((s, i) => {
+            const dur = fmtDuration(s.durationSeconds);
+            const dist = fmtDist(s.distance);
+            const meta = [dur, dist].filter(Boolean).join(' / ');
+            return (
+              <div key={i} className="cardio-list__row">
+                <div className="cardio-list__info">
+                  <span className="cardio-list__name">{s.name || 'Cardio'}</span>
+                  {meta && <span className="cardio-list__meta">{meta}</span>}
+                </div>
+                <span className="cardio-list__date">{fmtShort(s.date)}</span>
+              </div>
+            );
+          })}
         </div>
-        <div className="client-overview__compliance-stat">
-          <span className="client-overview__compliance-value">{cardioSessions ?? 0}</span>
-          <span className="client-overview__compliance-label">Cardio sessions</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1160,7 +1207,7 @@ function ClientOverviewTab({ clientId }) {
   });
   const [weightRange, setWeightRange] = useState('3m');
   const [focusOpen, setFocusOpen] = useState(false);
-  const [complianceRange, setComplianceRange] = useState(30);
+  const complianceRange = 30; // fixed - backend handles its own date ranges
   const [sleepMode, setSleepMode] = useState('hours');
   const [selectedDay, setSelectedDay] = useState(null);
 
@@ -1273,11 +1320,6 @@ function ClientOverviewTab({ clientId }) {
   }, [calendarYear, calendarMonth]);
 
   useEffect(() => {
-    if (loadedClientRef.current === clientId) fetchCompliance();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [complianceRange]);
-
-  useEffect(() => {
     if (loadedClientRef.current === clientId) fetchWeight();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weightRange]);
@@ -1330,26 +1372,29 @@ function ClientOverviewTab({ clientId }) {
         </div>
       </div>
 
-      {/* Charts stacked full-width below */}
+      {/* Charts below calendar */}
       <div className="client-overview__charts">
-        <StepsGraph
-          data={healthData?.steps?.data}
-          target={healthData?.steps?.target}
-          average={healthData?.steps?.average}
-        />
+        {/* Row 1: Steps + Sleep side by side */}
+        <div className="client-overview__chart-row">
+          <StepsGraph
+            data={healthData?.steps?.data}
+            target={healthData?.steps?.target}
+            average={healthData?.steps?.average}
+          />
+          <SleepGraph
+            data={healthData?.sleep}
+            sleepMode={sleepMode}
+            setSleepMode={setSleepMode}
+          />
+        </div>
 
-        <SleepGraph
-          data={healthData?.sleep}
-          sleepMode={sleepMode}
-          setSleepMode={setSleepMode}
-        />
+        {/* Row 2: Strength + Cardio side by side */}
+        <div className="client-overview__chart-row">
+          <StrengthSessionsSection data={complianceData} />
+          <CardioSessionsSection data={complianceData} />
+        </div>
 
-        <TrainingComplianceSection
-          data={complianceData}
-          complianceRange={complianceRange}
-          setComplianceRange={setComplianceRange}
-        />
-
+        {/* Row 3: Weight trajectory full width */}
         <WeightTrajectorySection
           data={weightData}
           weightRange={weightRange}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
@@ -77,15 +77,39 @@ function TrendDot({ cx, cy, payload, dataKey, stroke }) {
   );
 }
 
+// Trend bar colour based on raw score (1-10 scale)
+function trendBarColor(val, isStress) {
+  if (val == null) return '#d1d5db';
+  if (isStress) return stressScoreColor(val);
+  return rawScoreColor(val);
+}
+
 // --- Score Block with 8-week trend tooltip ---
 
 export function ScoreBlock({ label, value, trend, trendKey, isStress }) {
   const [showTrend, setShowTrend] = useState(false);
+  const [trendAlign, setTrendAlign] = useState('center');
+  const badgeRef = useRef(null);
   const hex = isStress ? stressScoreColor(value) : rawScoreColor(value);
+
+  useEffect(() => {
+    if (showTrend && badgeRef.current) {
+      const rect = badgeRef.current.getBoundingClientRect();
+      const tooltipWidth = 296;
+      if (rect.left < tooltipWidth / 2) {
+        setTrendAlign('left');
+      } else if (window.innerWidth - rect.right < tooltipWidth / 2) {
+        setTrendAlign('right');
+      } else {
+        setTrendAlign('center');
+      }
+    }
+  }, [showTrend]);
 
   return (
     <div
       className="score-badge"
+      ref={badgeRef}
       onMouseEnter={() => setShowTrend(true)}
       onMouseLeave={() => setShowTrend(false)}
     >
@@ -94,29 +118,26 @@ export function ScoreBlock({ label, value, trend, trendKey, isStress }) {
       </div>
       <span className="score-badge__label">{label}</span>
       {showTrend && trend && trend.length > 1 && (
-        <div className="score-badge__trend">
-          <ResponsiveContainer width={280} height={120}>
-            <LineChart data={trend} margin={{ top: 16, right: 12, bottom: 4, left: 12 }}>
-              <XAxis
-                dataKey="weekStart"
-                tickFormatter={cycleToMonday}
-                tick={{ fontSize: 9, fill: '#555e62' }}
-                interval={0}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis hide domain={[0, 10]} />
-              <ReferenceLine y={8} stroke="#e2e5e8" strokeDasharray="4 4" />
-              <Line
-                type="monotone"
-                dataKey={trendKey}
-                stroke={hex}
-                strokeWidth={2}
-                dot={<TrendDot dataKey={trendKey} stroke={hex} />}
-                activeDot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className={`score-badge__trend score-badge__trend--${trendAlign}`}>
+          <div className="score-badge__trend-chart">
+            <div className="score-badge__trend-ref" />
+            {trend.map((entry, i) => {
+              const val = entry[trendKey];
+              const pct = val != null ? (val / 10) * 100 : 0;
+              return (
+                <div key={i} className="score-badge__trend-col">
+                  <span className="score-badge__trend-val">{val ?? ''}</span>
+                  <div className="score-badge__trend-bar-wrap">
+                    <div
+                      className="score-badge__trend-bar"
+                      style={{ height: `${pct}%`, background: trendBarColor(val, isStress) }}
+                    />
+                  </div>
+                  <span className="score-badge__trend-week">{cycleToMonday(entry.weekStart)}</span>
+                </div>
+              );
+            })}
+          </div>
           <span className="score-badge__trend-label">Last {trend.length} weeks</span>
         </div>
       )}
@@ -143,7 +164,7 @@ export function TotalBadge({ total, trend }) {
         {band && <span className="total-badge__band" style={{ color: hex }}>{band}</span>}
       </div>
       {showTrend && trend && trend.length > 1 && (
-        <div className="score-block__trend score-block__trend--right">
+        <div className="score-badge__trend score-badge__trend--right">
           <ResponsiveContainer width={280} height={120}>
             <LineChart data={trend} margin={{ top: 16, right: 12, bottom: 4, left: 12 }}>
               <XAxis
@@ -154,7 +175,7 @@ export function TotalBadge({ total, trend }) {
                 axisLine={false}
                 tickLine={false}
               />
-              <YAxis hide domain={[0, 45]} />
+              <YAxis hide type="number" domain={[0, 45]} allowDataOverflow={false} />
               <ReferenceLine y={38} stroke="#e2e5e8" strokeDasharray="4 4" />
               <Line
                 type="monotone"
@@ -166,7 +187,7 @@ export function TotalBadge({ total, trend }) {
               />
             </LineChart>
           </ResponsiveContainer>
-          <span className="score-block__trend-label">Last {trend.length} weeks</span>
+          <span className="score-badge__trend-label">Last {trend.length} weeks</span>
         </div>
       )}
     </div>

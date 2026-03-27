@@ -6,7 +6,7 @@
 - Never use em dashes anywhere in the UI. Use a regular hyphen (-) or reword the text instead. This applies to all components, labels, placeholders, and any other visible text throughout the site.
 - Always display dates and times in Europe/Dublin timezone (GMT in winter, IST/GMT+1 in summer). Label scheduled times with "(Dublin time)" where shown.
 - Use existing CSS variables and BEM naming conventions throughout all components.
-- Use Syne for headings, DM Sans for body text.
+- Use DM Sans for both headings and body text.
 
 ## Data Rules
 
