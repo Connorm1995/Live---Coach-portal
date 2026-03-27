@@ -395,34 +395,33 @@ async function handleBodystatsCompleted(payload) {
   return {};
 }
 
-async function handleDailyWorkoutCompleted(payload) {
+async function handleDailyWorkoutOrCardio(payload) {
   const { userID, dailyWorkoutID } = payload;
   if (!userID || !dailyWorkoutID) {
-    console.warn('[Trainerize dailyWorkout.completed] Missing userID or dailyWorkoutID');
+    console.warn('[Trainerize workout/cardio] Missing userID or dailyWorkoutID');
     return { skipped: 'missing fields' };
   }
 
   try {
-    await upsertWorkout(userID, dailyWorkoutID);
-    console.log(`[Trainerize dailyWorkout.completed] Stored workout ${dailyWorkoutID} for userID=${userID}`);
-  } catch (err) {
-    console.error(`[Trainerize dailyWorkout.completed] Error: ${err.message}`);
-  }
-  return {};
-}
+    // Fetch detail to determine workout type before routing to the correct table
+    const detail = await trainerizePostRaw('/v03/dailyWorkout/get', {
+      ids: [dailyWorkoutID],
+    });
+    const w = detail?.dailyWorkouts?.[0];
+    if (!w) {
+      console.warn(`[Trainerize workout/cardio] No detail for dailyWorkoutID=${dailyWorkoutID}`);
+      return { skipped: 'no detail' };
+    }
 
-async function handleDailyCardioCompleted(payload) {
-  const { userID, dailyWorkoutID } = payload;
-  if (!userID || !dailyWorkoutID) {
-    console.warn('[Trainerize dailyCardio.completed] Missing userID or dailyWorkoutID');
-    return { skipped: 'missing fields' };
-  }
-
-  try {
-    await upsertCardio(userID, dailyWorkoutID);
-    console.log(`[Trainerize dailyCardio.completed] Stored cardio ${dailyWorkoutID} for userID=${userID}`);
+    if (w.type === 'cardio') {
+      await upsertCardio(userID, dailyWorkoutID);
+      console.log(`[Trainerize] Stored cardio ${dailyWorkoutID} for userID=${userID}`);
+    } else {
+      await upsertWorkout(userID, dailyWorkoutID);
+      console.log(`[Trainerize] Stored workout ${dailyWorkoutID} for userID=${userID}`);
+    }
   } catch (err) {
-    console.error(`[Trainerize dailyCardio.completed] Error: ${err.message}`);
+    console.error(`[Trainerize workout/cardio] Error: ${err.message}`);
   }
   return {};
 }
@@ -439,8 +438,8 @@ const TRAINERIZE_HANDLERS = {
   // 'client.deleted':    null,
 
   // Active handlers — persistent storage
-  'dailyWorkout.completed': handleDailyWorkoutCompleted,
-  'dailyCardio.completed':  handleDailyCardioCompleted,
+  'dailyWorkout.completed': handleDailyWorkoutOrCardio,
+  'dailyCardio.completed':  handleDailyWorkoutOrCardio,
   'bodystats.completed':    handleBodystatsCompleted,
 
   // Reserved for future use — client reassignment
@@ -496,10 +495,10 @@ function inferEventType(payload) {
   if (payload.userID && payload.status && payload.firstname && !payload.dailyWorkoutID) return 'client.statusChanged';
   // client.deleted: has userID + firstname + email but no status
   if (payload.userID && payload.firstname && !payload.status) return 'client.deleted';
-  // dailyWorkout.completed: has dailyWorkoutID + brokenRecords
-  if (payload.dailyWorkoutID && payload.brokenRecords) return 'dailyWorkout.completed';
-  // bodystats.completed: has bodystats object
-  if (payload.bodystats) return 'bodystats.completed';
+  // dailyWorkout or dailyCardio completed: has dailyWorkoutID (brokenRecords may be absent)
+  if (payload.dailyWorkoutID) return 'dailyWorkout.completed';
+  // bodystats.completed: has bodystats object or flat bodyStatusID
+  if (payload.bodystats || payload.bodyStatusID) return 'bodystats.completed';
   // goal events: has goal object
   if (payload.goal) return 'goal.added'; // ambiguous — logged for review
   // msg.received: has threadID + messageID
