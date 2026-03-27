@@ -1554,6 +1554,58 @@
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  transition: max-width 0.2s ease;
+}
+
+.client-overview__overlay--wide {
+  max-width: min(90vw, 860px);
+}
+
+/* Mini block progress inside overlay */
+.overlay-block {
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-off-white);
+}
+
+.overlay-block .block-scroll-wrapper {
+  overflow: hidden;
+}
+
+.overlay-block .block-fixed-col__exercise {
+  font-size: 11px;
+}
+
+.overlay-block .block-fixed-col__set {
+  font-size: 10px;
+}
+
+.overlay-block .block-cell__set-value {
+  font-size: 11px;
+}
+
+.overlay-block .block-col-header {
+  padding: 4px 6px;
+}
+
+.overlay-block .block-col-header__num {
+  font-size: 10px;
+}
+
+.overlay-block .block-col-header__date {
+  font-size: 9px;
+}
+
+/* Highlight the active session column */
+.block-col-header--active {
+  background: rgba(35, 184, 184, 0.15);
+  border-bottom: 2px solid var(--color-teal);
+}
+
+.block-cell--highlight {
+  box-shadow: inset 2px 0 0 var(--color-teal), inset -2px 0 0 var(--color-teal);
 }
 
 .client-overview__overlay-header {

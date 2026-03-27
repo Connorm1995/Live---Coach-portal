@@ -292,11 +292,143 @@ function CheckinPanel({
   );
 }
 
+// ─── Block progress helpers (shared with TrainingTab) ───────────────
+
+const BLOCK_COLOR_CLASS = {
+  white: 'block-cell--white',
+  green: 'block-cell--green',
+  amber: 'block-cell--amber',
+  red: 'block-cell--red',
+  empty: 'block-cell--empty',
+};
+
+function formatSetValue(reps, weight, time) {
+  if (time != null && time > 0 && reps == null && weight == null) {
+    const m = Math.floor(time / 60);
+    const s = Math.round(time % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+  if (reps == null && weight == null) return '-';
+  if (weight == null || weight === 0) return reps != null ? `${reps} reps` : '-';
+  if (reps == null) return `${weight}kg`;
+  return `${reps} x ${weight}kg`;
+}
+
+function OverlayArrow({ arrow }) {
+  if (!arrow) return null;
+  if (arrow === 'up') return <span className="block-arrow block-arrow--up">{'\u25B2'}</span>;
+  if (arrow === 'down') return <span className="block-arrow block-arrow--down">{'\u25BC'}</span>;
+  return <span className="block-arrow block-arrow--same">{'\u25B6'}</span>;
+}
+
+// ─── Mini block progress grid for overlay ───────────────────────────
+
+function OverlayBlockGrid({ blockData, workoutName, activeWorkoutId }) {
+  const wd = blockData?.workouts?.[workoutName];
+  if (!wd) return <div className="client-overview__overlay-workout-loading">No block data for this workout</div>;
+
+  const { exerciseRows, indicatorRows, sessions } = wd;
+  const colorKey = 'volumeColor';
+
+  // Find which column index matches the clicked workout
+  const activeIdx = sessions.findIndex(s => String(s.workoutId) === String(activeWorkoutId));
+
+  return (
+    <div className="overlay-block">
+      <div className="block-scroll-wrapper">
+        {/* Fixed left column */}
+        <div className="block-fixed-col">
+          <div className="block-fixed-col__corner" />
+          {exerciseRows.map((row, ri) => (
+            <React.Fragment key={ri}>
+              <div className="block-fixed-col__exercise">{row.exercise}</div>
+              {row.setRows.map((sr, si) => (
+                <div key={`${ri}-s-${si}`} className="block-fixed-col__set">Set {sr.setNum}</div>
+              ))}
+            </React.Fragment>
+          ))}
+          {indicatorRows && indicatorRows.map((ind, ii) => (
+            <div key={`ind-${ii}`} className="block-fixed-col__indicator">{ind.name}</div>
+          ))}
+        </div>
+
+        {/* Scrollable session columns */}
+        <div className="block-scroll-area">
+          <div className="block-scroll-inner" style={{ '--session-count': sessions.length }}>
+            {/* Header row */}
+            {sessions.map((s, i) => (
+              <div key={i} className={`block-col-header${i === activeIdx ? ' block-col-header--active' : ''}`}>
+                <span className="block-col-header__num">S{s.sessionNum}</span>
+                <span className="block-col-header__date">{fmtShort(s.date)}</span>
+              </div>
+            ))}
+
+            {/* Exercise rows */}
+            {exerciseRows.map((row, ri) => (
+              <React.Fragment key={ri}>
+                {/* Exercise header cells */}
+                {row.colors.map((c, ci) => {
+                  const color = c[colorKey] || 'empty';
+                  return (
+                    <div key={`eh-${ri}-${ci}`} className={`block-cell block-cell--exercise-header ${BLOCK_COLOR_CLASS[color]}${ci === activeIdx ? ' block-cell--highlight' : ''}`} />
+                  );
+                })}
+
+                {/* Set sub-rows */}
+                {row.setRows.map((sr, si) => (
+                  <React.Fragment key={`${ri}-set-${si}`}>
+                    {sr.cells.map((cell, ci) => {
+                      const exColor = cell.flagged ? 'empty' : (row.colors[ci]?.[colorKey] || 'empty');
+                      return (
+                        <div
+                          key={`sc-${ri}-${si}-${ci}`}
+                          className={`block-cell block-cell--set ${BLOCK_COLOR_CLASS[exColor]}${cell.flagged ? ' block-cell--flagged' : ''}${ci === activeIdx ? ' block-cell--highlight' : ''}`}
+                        >
+                          <span className="block-cell__set-value">
+                            {formatSetValue(cell.reps, cell.weight, cell.time)}
+                          </span>
+                          {si === 0 && !cell.flagged && cell.arrow && <OverlayArrow arrow={cell.arrow} />}
+                          {cell.autoFlagged && <span className="block-cell__flag-icon" title="Likely data entry error">&#x26A0;&#xFE0F;</span>}
+                          {cell.manualFlagged && <span className="block-cell__flag-icon" title="Flagged by coach">&#x1F6A9;</span>}
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </React.Fragment>
+            ))}
+
+            {/* Indicator rows */}
+            {indicatorRows && indicatorRows.map((ind, ii) => (
+              <React.Fragment key={`ind-${ii}`}>
+                {ind.cells.map((cell, ci) => (
+                  <div key={`ic-${ii}-${ci}`} className={`block-cell block-cell--indicator${ci === activeIdx ? ' block-cell--highlight' : ''}`}>
+                    {cell.done && (
+                      <span className="block-cell__indicator-content">
+                        <span className="block-cell__indicator-values">
+                          {cell.timeStr && <span>{cell.timeStr}</span>}
+                          {cell.distanceStr && <span>{cell.distanceStr}</span>}
+                        </span>
+                        {cell.arrow && <OverlayArrow arrow={cell.arrow} />}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── DayOverlay (modal for calendar day click) ─────────────────────
 
 function DayOverlay({ date, dayData, clientId, onClose }) {
-  const [workoutDetail, setWorkoutDetail] = useState(null);
-  const [loadingWorkout, setLoadingWorkout] = useState(false);
+  const [blockData, setBlockData] = useState(null);
+  const [loadingBlock, setLoadingBlock] = useState(false);
+  const [selectedWorkoutName, setSelectedWorkoutName] = useState(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
   const overlayRef = useRef(null);
 
@@ -309,36 +441,39 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
-  // Fetch workout detail
-  const fetchWorkout = useCallback(async (workoutId) => {
-    if (selectedWorkoutId === workoutId) {
+  // Fetch block progress for the workout
+  const fetchBlockProgress = useCallback(async (workoutName, workoutId) => {
+    if (selectedWorkoutName === workoutName) {
+      setSelectedWorkoutName(null);
       setSelectedWorkoutId(null);
-      setWorkoutDetail(null);
+      setBlockData(null);
       return;
     }
-    setLoadingWorkout(true);
+    setLoadingBlock(true);
+    setSelectedWorkoutName(workoutName);
     setSelectedWorkoutId(workoutId);
     try {
-      const res = await fetch(`${API_BASE}/api/client-overview/${clientId}/workout/${workoutId}`);
-      if (!res.ok) throw new Error('Failed to fetch workout');
+      const res = await fetch(`${API_BASE}/api/training/${clientId}/block-progress`);
+      if (!res.ok) throw new Error('Failed to fetch block progress');
       const json = await res.json();
-      setWorkoutDetail(json);
+      setBlockData(json);
     } catch (err) {
-      console.error('Workout fetch error:', err);
-      setWorkoutDetail(null);
+      console.error('Block progress fetch error:', err);
+      setBlockData(null);
     } finally {
-      setLoadingWorkout(false);
+      setLoadingBlock(false);
     }
-  }, [clientId, selectedWorkoutId]);
+  }, [clientId, selectedWorkoutName]);
 
   if (!dayData) return null;
 
   const activities = dayData.activities || [];
+  const hasBlockOpen = selectedWorkoutName && (blockData || loadingBlock);
 
   return (
     <>
       <div className="client-overview__overlay-backdrop" onClick={onClose} />
-      <div className="client-overview__overlay" ref={overlayRef}>
+      <div className={`client-overview__overlay${hasBlockOpen ? ' client-overview__overlay--wide' : ''}`} ref={overlayRef}>
         <div className="client-overview__overlay-header">
           <span className="client-overview__overlay-date">{formatDateLong(date)}</span>
           <button className="client-overview__overlay-close" onClick={onClose}>&times;</button>
@@ -350,12 +485,12 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
             {activities.map((a, ai) => {
               const isStrength = a.type === 'strength';
               const wId = a.workoutId || a.id;
-              const isSelected = isStrength && selectedWorkoutId === wId;
+              const isSelected = isStrength && selectedWorkoutName === a.name;
               return (
                 <div key={ai} className="client-overview__overlay-activity">
                   <div
                     className={`client-overview__overlay-activity-row${isStrength ? ' client-overview__overlay-activity-row--clickable' : ''}`}
-                    onClick={isStrength && wId ? () => fetchWorkout(wId) : undefined}
+                    onClick={isStrength && wId ? () => fetchBlockProgress(a.name, wId) : undefined}
                   >
                     <span className={`client-overview__overlay-dot client-overview__overlay-dot--${a.type}`} />
                     <span className="client-overview__overlay-name">{a.name}</span>
@@ -365,35 +500,15 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
                       <span className="client-overview__overlay-expand">{isSelected ? '\u25B2' : '\u25BC'}</span>
                     )}
                   </div>
-                  {isSelected && loadingWorkout && (
-                    <div className="client-overview__overlay-workout-loading">Loading exercises...</div>
+                  {isSelected && loadingBlock && (
+                    <div className="client-overview__overlay-workout-loading">Loading block progress...</div>
                   )}
-                  {isSelected && workoutDetail && !loadingWorkout && (
-                    <div className="client-overview__overlay-workout">
-                      <table className="client-overview__overlay-table">
-                        <thead>
-                          <tr>
-                            <th>Exercise</th>
-                            <th>Set</th>
-                            <th>Weight</th>
-                            <th>Reps</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(workoutDetail.exercises || []).flatMap((ex, ei) => {
-                            const sets = ex.sets && ex.sets.length > 0 ? ex.sets : [{ reps: null, weight: null }];
-                            return sets.map((s, si) => (
-                              <tr key={`${ei}-${si}`} className={si === 0 ? 'client-overview__overlay-table-first' : ''}>
-                                <td>{si === 0 ? ex.name : ''}</td>
-                                <td>{sets.length > 1 ? si + 1 : '-'}</td>
-                                <td>{s.weight != null ? `${s.weight} kg` : '-'}</td>
-                                <td>{s.reps != null ? s.reps : '-'}</td>
-                              </tr>
-                            ));
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                  {isSelected && blockData && !loadingBlock && (
+                    <OverlayBlockGrid
+                      blockData={blockData}
+                      workoutName={a.name}
+                      activeWorkoutId={wId}
+                    />
                   )}
                 </div>
               );
