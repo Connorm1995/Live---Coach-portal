@@ -9,8 +9,12 @@ function firstName(fullName) {
 
 const URL_PLACEHOLDER = '[Loom URL]';
 
-function buildTemplate(clientName, url) {
-  return `Hey ${firstName(clientName)},\n\nThanks a mill for checking in.\n\nHere is your feedback for last week.\n${url || URL_PLACEHOLDER}`;
+function buildTemplate(clientName, url, focusText) {
+  let msg = `Good morning ${firstName(clientName)},\n\nThanks a mill for checking in.\nClick the link below to see your EOW feedback:\n${url || URL_PLACEHOLDER}`;
+  if (focusText) {
+    msg += `\n\nThis week's focus:\n${focusText}`;
+  }
+  return msg;
 }
 
 function isLoomUrl(str) {
@@ -48,6 +52,8 @@ function LoomModal({ isOpen, onClose, clientId, clientName, onSent }) {
       .then((data) => {
         if (data.pending) {
           setCheckinId(data.pending.checkinId);
+          // Rebuild template with focus text from backend
+          setMessage(buildTemplate(clientName, '', data.pending.focusText || ''));
         } else {
           setNoPending(true);
         }

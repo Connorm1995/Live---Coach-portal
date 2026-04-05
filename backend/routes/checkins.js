@@ -11,8 +11,8 @@ const COACH_ID = 1; // Single coach for now
 async function trainerizeSendDM(recipientTrainerizeId, messageText) {
   return trainerizePostRaw('/message/send', {
     recipients: [Number(recipientTrainerizeId)],
-    subject: 'Check-in Feedback',
     body: messageText,
+    threadType: 'mainThread',
     conversationType: 'single',
     type: 'text',
   });
@@ -139,6 +139,21 @@ router.get('/pending/:clientId', async (req, res) => {
       return res.json({ pending: null });
     }
 
+    // Fetch current week's focus text for this client
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const dow = today.getUTCDay();
+    const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+    const monday = new Date(today);
+    monday.setUTCDate(today.getUTCDate() - daysSinceMonday);
+    const mondayStr = monday.toISOString().split('T')[0];
+
+    const focusResult = await pool.query(
+      `SELECT focus_text FROM weekly_focus WHERE coach_id = $1 AND client_id = $2 AND week_start = $3`,
+      [COACH_ID, clientId, mondayStr]
+    );
+    const focusText = focusResult.rows[0]?.focus_text || '';
+
     const row = result.rows[0];
     res.json({
       pending: {
@@ -147,6 +162,7 @@ router.get('/pending/:clientId', async (req, res) => {
         submittedAt: row.submitted_at,
         clientName: row.name,
         trainerizeId: row.trainerize_id,
+        focusText,
       },
     });
   } catch (err) {
