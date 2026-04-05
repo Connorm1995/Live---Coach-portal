@@ -444,7 +444,7 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
   const [blockData, setBlockData] = useState(null);
   const [loadingBlock, setLoadingBlock] = useState(false);
   const [selectedWorkoutName, setSelectedWorkoutName] = useState(null);
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
+  const [, setSelectedWorkoutId] = useState(null);
   const overlayRef = useRef(null);
 
   // Close on Escape
