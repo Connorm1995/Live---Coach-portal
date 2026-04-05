@@ -299,7 +299,7 @@ async function buildTrainingCompliance(clientId, complianceRange) {
   const endDate = end.toISOString().split('T')[0];
 
   const strengthResult = await pool.query(
-    `SELECT DATE_TRUNC('week', date)::date AS week_start, COUNT(*) AS count
+    `SELECT DATE_TRUNC('week', date)::date::text AS week_start, COUNT(*) AS count
      FROM client_workouts
      WHERE client_id = $1 AND coach_id = $2
        AND date >= $3 AND date <= $4
@@ -319,7 +319,7 @@ async function buildTrainingCompliance(clientId, complianceRange) {
 
   for (let i = 0; i < 4; i++) {
     const ws = weekCursor.toISOString().split('T')[0];
-    const match = strengthResult.rows.find(r => r.week_start.toISOString().split('T')[0] === ws);
+    const match = strengthResult.rows.find(r => r.week_start === ws);
     strengthWeekly.push({
       weekStart: ws,
       count: match ? parseInt(match.count, 10) : 0,

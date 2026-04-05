@@ -451,9 +451,9 @@
 
 .checkin-panel__field-value {
   font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 400;
-  color: #374151;
+  font-size: 15px;
+  font-weight: 500;
+  color: #1f2937;
   line-height: 1.45;
 }
 
@@ -603,8 +603,22 @@
   background: var(--color-cal-strength);
 }
 
+.cal-panel__activity--strength.cal-panel__activity--scheduled {
+  background: transparent;
+  border: 1px solid var(--color-cal-strength);
+  color: var(--color-cal-strength);
+  font-style: italic;
+}
+
 .cal-panel__activity--cardio {
   background: var(--color-cal-cardio);
+}
+
+.cal-panel__activity--cardio.cal-panel__activity--scheduled {
+  background: transparent;
+  border: 1px solid var(--color-cal-cardio);
+  color: var(--color-cal-cardio);
+  font-style: italic;
 }
 
 /* Stat pill badges (weight/body stats, nutrition, sleep) */
@@ -1571,7 +1585,7 @@
 }
 
 .overlay-block .block-scroll-wrapper {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .overlay-block .block-fixed-col__exercise {

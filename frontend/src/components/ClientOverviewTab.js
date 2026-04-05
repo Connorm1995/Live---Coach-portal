@@ -277,7 +277,7 @@ function CheckinPanel({
           const unanswered = value == null;
 
           if (field.type === 'followup' && unanswered) {
-            return <hr key={field.key} className="checkin-panel__skip" />;
+            return null;
           }
 
           return (
@@ -324,7 +324,22 @@ function OverlayArrow({ arrow }) {
 // ─── Mini block progress grid for overlay ───────────────────────────
 
 function OverlayBlockGrid({ blockData, workoutName, activeWorkoutId }) {
-  const wd = blockData?.workouts?.[workoutName];
+  // Direct lookup first, then fuzzy match (case-insensitive, trimmed, substring)
+  let wd = blockData?.workouts?.[workoutName];
+  if (!wd && blockData?.workouts) {
+    const target = workoutName.trim().toLowerCase();
+    const keys = Object.keys(blockData.workouts);
+    // Try exact case-insensitive match
+    let match = keys.find(k => k.trim().toLowerCase() === target);
+    // Try substring: calendar name contains block name or vice versa
+    if (!match) {
+      match = keys.find(k => {
+        const kl = k.trim().toLowerCase();
+        return target.includes(kl) || kl.includes(target);
+      });
+    }
+    if (match) wd = blockData.workouts[match];
+  }
   if (!wd) return <div className="client-overview__overlay-workout-loading">No block data for this workout</div>;
 
   const { exerciseRows, indicatorRows, sessions } = wd;
@@ -464,6 +479,29 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
       setLoadingBlock(false);
     }
   }, [clientId, selectedWorkoutName]);
+
+  // Auto-open progressions for the first completed strength session
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current || !dayData) return;
+    const activities = dayData.activities || [];
+    const firstCompleted = activities.find(
+      a => a.type === 'strength' && a.status === 'completed' && (a.workoutId || a.id)
+    );
+    if (firstCompleted) {
+      autoOpenedRef.current = true;
+      const wId = firstCompleted.workoutId || firstCompleted.id;
+      // Directly fetch without going through the toggle path
+      setLoadingBlock(true);
+      setSelectedWorkoutName(firstCompleted.name);
+      setSelectedWorkoutId(wId);
+      fetch(`${API_BASE}/api/training/${clientId}/block-progress`)
+        .then(res => res.ok ? res.json() : Promise.reject('Failed'))
+        .then(json => setBlockData(json))
+        .catch(err => { console.error('Auto-open block progress error:', err); setBlockData(null); })
+        .finally(() => setLoadingBlock(false));
+    }
+  }, [dayData, clientId]);
 
   if (!dayData) return null;
 
@@ -640,10 +678,10 @@ function CalendarPanel({ calendar, calendarMonth, calendarYear, setCalendarMonth
               <span className="cal-panel__date">{dayNum}</span>
               {/* Workout names */}
               {strengthSessions.map((s, si) => (
-                <span key={`s${si}`} className="cal-panel__activity cal-panel__activity--strength">{s.name || 'Strength'}</span>
+                <span key={`s${si}`} className={`cal-panel__activity cal-panel__activity--strength${s.status === 'scheduled' ? ' cal-panel__activity--scheduled' : ''}`}>{s.name || 'Strength'}</span>
               ))}
               {cardioSessions.map((c, ci) => (
-                <span key={`c${ci}`} className="cal-panel__activity cal-panel__activity--cardio">{c.name || 'Cardio'}</span>
+                <span key={`c${ci}`} className={`cal-panel__activity cal-panel__activity--cardio${c.status === 'scheduled' ? ' cal-panel__activity--scheduled' : ''}`}>{c.name || 'Cardio'}</span>
               ))}
               {/* Body stats (weight) */}
               {dayData?.weight && (
