@@ -295,6 +295,11 @@ async function migrate() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS reminders_enabled BOOLEAN NOT NULL DEFAULT true
     `);
 
+    // Add timezone column to clients (for per-client reminder scheduling)
+    await client.query(`
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS timezone VARCHAR NOT NULL DEFAULT 'Europe/Dublin'
+    `);
+
     // Add separate program-level reminder toggles to coach_settings
     await client.query(`
       ALTER TABLE coach_settings ADD COLUMN IF NOT EXISTS mfc_reminders_enabled BOOLEAN NOT NULL DEFAULT true

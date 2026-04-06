@@ -37,7 +37,7 @@ router.get('/:id/detail', async (req, res) => {
     const result = await pool.query(`
       SELECT
         cl.id, cl.name, cl.email, cl.program, cl.trainerize_id,
-        cl.current_phase, cl.mfp_url, cl.objectives, cl.created_at, cl.trainerize_joined_at,
+        cl.current_phase, cl.mfp_url, cl.objectives, cl.timezone, cl.created_at, cl.trainerize_joined_at,
         (SELECT MAX(c.submitted_at) FROM checkins c WHERE c.client_id = cl.id) AS last_checkin_at
       FROM clients cl
       WHERE cl.id = $1 AND cl.coach_id = $2
@@ -70,6 +70,7 @@ router.get('/:id/detail', async (req, res) => {
         currentPhase: client.current_phase,
         mfpUrl: client.mfp_url,
         objectives: client.objectives,
+        timezone: client.timezone || 'Europe/Dublin',
         joinedAt: client.trainerize_joined_at || client.created_at,
         lastCheckinAt: client.last_checkin_at,
         sessionCount,
@@ -169,6 +170,37 @@ router.patch('/:id/phase', async (req, res) => {
   } catch (err) {
     console.error('[Clients] Error updating phase:', err.message);
     res.status(500).json({ error: 'Failed to update phase' });
+  }
+});
+
+// PATCH /api/clients/:id/timezone — update client timezone
+router.patch('/:id/timezone', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { timezone } = req.body;
+
+    if (!timezone || typeof timezone !== 'string') {
+      return res.status(400).json({ error: 'timezone is required' });
+    }
+
+    // Validate by attempting to use it with Intl
+    try {
+      Intl.DateTimeFormat('en', { timeZone: timezone });
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid timezone identifier' });
+    }
+
+    const result = await pool.query(
+      `UPDATE clients SET timezone = $1
+       WHERE id = $2 AND coach_id = $3
+       RETURNING id, timezone`,
+      [timezone, id, COACH_ID]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
+    res.json({ timezone: result.rows[0].timezone });
+  } catch (err) {
+    console.error('[Clients] Error updating timezone:', err.message);
+    res.status(500).json({ error: 'Failed to update timezone' });
   }
 });
 

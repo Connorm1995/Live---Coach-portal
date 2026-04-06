@@ -111,14 +111,14 @@ async function processScheduledPosts() {
 const COACH_ID = 1; // Single coach for now
 
 /**
- * Get the current date/time in Europe/Dublin timezone.
+ * Get the current date/time in a given timezone.
  * Returns { year, month, day, hour, minute, weekday }
  * where weekday is 0=Sun, 1=Mon, ..., 6=Sat (matching JS convention).
  */
-function getDublinTime() {
+function getTimeInZone(tz) {
   const now = new Date();
   const parts = new Intl.DateTimeFormat('en-IE', {
-    timeZone: 'Europe/Dublin',
+    timeZone: tz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -140,6 +140,10 @@ function getDublinTime() {
     minute: Number(vals.minute),
     weekday: weekdayMap[vals.weekday] ?? -1,
   };
+}
+
+function getDublinTime() {
+  return getTimeInZone('Europe/Dublin');
 }
 
 /**
@@ -258,39 +262,48 @@ async function processReminders() {
   try {
     const dublin = getDublinTime();
 
-    // --- Weekly reminder: Monday at 8:30pm Dublin time ---
-    if (dublin.weekday === 1 && (dublin.hour > 20 || (dublin.hour === 20 && dublin.minute >= 30))) {
+    // --- Weekly reminder: Monday at 8:30pm in each client's local timezone ---
+    // Check if it's Monday in Dublin (as a gate to avoid unnecessary DB queries on other days)
+    if (dublin.weekday === 1) {
       const cycleStart = getCurrentCycleSunday();
+      const settings = await getReminderSettings();
+      const enabled = settings.global && settings.mfc;
 
-      if (!(await hasWeeklyRemindersBeenProcessed(cycleStart))) {
-        const settings = await getReminderSettings();
-        const enabled = settings.global && settings.mfc;
-        console.log(`[Reminders] Processing weekly check-in reminders (cycle: ${cycleStart}, enabled: ${enabled})`);
+      // Find active MFC clients who haven't submitted AND haven't been reminded yet this cycle
+      const result = await pool.query(
+        `SELECT cl.id, cl.name, cl.trainerize_id, cl.reminders_enabled, cl.timezone
+         FROM clients cl
+         WHERE cl.coach_id = $1
+           AND cl.active = true
+           AND cl.program = 'my_fit_coach'
+           AND cl.id NOT IN (
+             SELECT client_id FROM checkins
+             WHERE coach_id = $1 AND type = 'weekly' AND cycle_start = $2
+           )
+           AND cl.id NOT IN (
+             SELECT client_id FROM reminder_logs
+             WHERE coach_id = $1 AND reminder_type = 'weekly_checkin' AND cycle_start = $2
+           )
+         ORDER BY cl.name`,
+        [COACH_ID, cycleStart]
+      );
 
-        // Find active MFC clients who haven't submitted for this cycle
-        const result = await pool.query(
-          `SELECT cl.id, cl.name, cl.trainerize_id, cl.reminders_enabled
-           FROM clients cl
-           WHERE cl.coach_id = $1
-             AND cl.active = true
-             AND cl.program = 'my_fit_coach'
-             AND cl.id NOT IN (
-               SELECT client_id FROM checkins
-               WHERE coach_id = $1 AND type = 'weekly' AND cycle_start = $2
-             )
-           ORDER BY cl.name`,
-          [COACH_ID, cycleStart]
-        );
+      const message = 'Hey [first name], just a nudge on your check-in. Still time to get it in if you haven\'t got the chance yet. 🙌';
 
-        const message = 'Hey [first name], just a reminder to fill out your weekly check-in when you get a chance. Here\'s the link: https://mfctransformations.typeform.com/checkingin';
-
-        for (const client of result.rows) {
-          const clientEnabled = enabled && client.reminders_enabled;
-          await sendReminderDM(client, message, 'weekly_checkin', cycleStart, clientEnabled);
+      for (const client of result.rows) {
+        // Check if it's past 8:30pm Monday in this client's timezone
+        const clientTz = client.timezone || 'Europe/Dublin';
+        let clientTime;
+        try {
+          clientTime = getTimeInZone(clientTz);
+        } catch (e) {
+          console.warn(`[Reminders] Invalid timezone "${clientTz}" for ${client.name}, falling back to Dublin`);
+          clientTime = dublin;
         }
 
-        if (result.rows.length === 0) {
-          console.log('[Reminders] No weekly reminders needed - all MFC clients have submitted');
+        if (clientTime.weekday === 1 && (clientTime.hour > 20 || (clientTime.hour === 20 && clientTime.minute >= 30))) {
+          const clientEnabled = enabled && client.reminders_enabled;
+          await sendReminderDM(client, message, 'weekly_checkin', cycleStart, clientEnabled);
         }
       }
     }
@@ -335,7 +348,7 @@ async function processReminders() {
               [COACH_ID, cycleStart]
             );
 
-            const message = 'Hey [first name], just a reminder to fill out your end of month report when you get a chance. Here\'s the link: https://form.typeform.com/to/iISVFuRv';
+            const message = 'Hey [first name], just sending a nudge on your check-in. Still time to get it in or book in for a call if you haven\'t already  🙌';
 
             for (const client of result.rows) {
               const clientEnabled = enabled && client.reminders_enabled;

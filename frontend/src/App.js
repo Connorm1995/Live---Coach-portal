@@ -108,6 +108,19 @@ function App() {
     });
   }, [selectedClientId]);
 
+  // Optimistic timezone update
+  const handleTimezoneChange = useCallback((newTz) => {
+    setClientDetail(prev => prev ? { ...prev, timezone: newTz } : prev);
+    fetch(`${API_BASE}/api/clients/${selectedClientId}/timezone`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timezone: newTz }),
+    }).catch(err => {
+      console.error('Failed to update timezone:', err);
+      setDetailRefresh(n => n + 1);
+    });
+  }, [selectedClientId]);
+
   return (
     <div className="app">
       <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
@@ -118,6 +131,7 @@ function App() {
             onHubToggle={toggleHub}
             onLoomOpen={openLoom}
             onPhaseChange={handlePhaseChange}
+            onTimezoneChange={handleTimezoneChange}
             tabs={CLIENT_TABS}
             activeClientTab={clientTab}
             onClientTabChange={setClientTab}

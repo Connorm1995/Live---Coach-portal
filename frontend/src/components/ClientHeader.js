@@ -8,6 +8,35 @@ const PHASE_LABELS = {
   maintenance: 'Maintenance',
 };
 
+const TIMEZONE_OPTIONS = [
+  { value: 'Europe/Dublin', label: 'Dublin (GMT/IST)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Paris (CET)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET)' },
+  { value: 'Europe/Madrid', label: 'Madrid (CET)' },
+  { value: 'Europe/Rome', label: 'Rome (CET)' },
+  { value: 'Europe/Amsterdam', label: 'Amsterdam (CET)' },
+  { value: 'Europe/Zurich', label: 'Zurich (CET)' },
+  { value: 'Europe/Stockholm', label: 'Stockholm (CET)' },
+  { value: 'Europe/Helsinki', label: 'Helsinki (EET)' },
+  { value: 'Europe/Athens', label: 'Athens (EET)' },
+  { value: 'Asia/Dubai', label: 'Dubai (GST)' },
+  { value: 'Asia/Kolkata', label: 'India (IST)' },
+  { value: 'Asia/Bangkok', label: 'Bangkok (ICT)' },
+  { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+  { value: 'Asia/Kuala_Lumpur', label: 'Kuala Lumpur (MYT)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
+  { value: 'Australia/Perth', label: 'Perth (AWST)' },
+  { value: 'Pacific/Auckland', label: 'Auckland (NZST)' },
+  { value: 'America/New_York', label: 'New York (EST)' },
+  { value: 'America/Chicago', label: 'Chicago (CST)' },
+  { value: 'America/Denver', label: 'Denver (MST)' },
+  { value: 'America/Los_Angeles', label: 'Los Angeles (PST)' },
+  { value: 'America/Toronto', label: 'Toronto (EST)' },
+  { value: 'America/Vancouver', label: 'Vancouver (PST)' },
+];
+
 function formatDate(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -33,11 +62,13 @@ const PHASE_COLORS = {
   maintenance: { bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' },
 };
 
-function ClientHeader({ client, onHubToggle, onLoomOpen, onPhaseChange, tabs, activeClientTab, onClientTabChange }) {
+function ClientHeader({ client, onHubToggle, onLoomOpen, onPhaseChange, onTimezoneChange, tabs, activeClientTab, onClientTabChange }) {
   const [phaseOpen, setPhaseOpen] = useState(false);
+  const [tzOpen, setTzOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const tzDropdownRef = useRef(null);
 
-  // Close dropdown on click outside
+  // Close phase dropdown on click outside
   useEffect(() => {
     if (!phaseOpen) return;
     const handleClick = (e) => {
@@ -48,6 +79,18 @@ function ClientHeader({ client, onHubToggle, onLoomOpen, onPhaseChange, tabs, ac
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [phaseOpen]);
+
+  // Close timezone dropdown on click outside
+  useEffect(() => {
+    if (!tzOpen) return;
+    const handleClick = (e) => {
+      if (tzDropdownRef.current && !tzDropdownRef.current.contains(e.target)) {
+        setTzOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [tzOpen]);
 
   const lastCheckin = formatDate(client?.lastCheckinAt);
   const tenure = formatTenure(client?.joinedAt);
@@ -118,6 +161,28 @@ function ClientHeader({ client, onHubToggle, onLoomOpen, onPhaseChange, tabs, ac
               {sessions != null && (
                 <>{(lastCheckin || tenure) ? ' \u00B7 ' : ''}{sessions} sessions</>
               )}
+              <span className="client-header__tz-wrap" ref={tzDropdownRef}>
+                <button
+                  className="client-header__tz-btn"
+                  onClick={() => setTzOpen(!tzOpen)}
+                  title="Client timezone (for reminders)"
+                >
+                  {TIMEZONE_OPTIONS.find(t => t.value === (client.timezone || 'Europe/Dublin'))?.label || client.timezone || 'Dublin'}
+                </button>
+                {tzOpen && (
+                  <div className="client-header__tz-dropdown">
+                    {TIMEZONE_OPTIONS.map(tz => (
+                      <button
+                        key={tz.value}
+                        className={`client-header__tz-option${(client.timezone || 'Europe/Dublin') === tz.value ? ' client-header__tz-option--active' : ''}`}
+                        onClick={() => { onTimezoneChange(tz.value); setTzOpen(false); }}
+                      >
+                        {tz.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </span>
             </p>
           )}
         </div>
