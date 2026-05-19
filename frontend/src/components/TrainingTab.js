@@ -483,7 +483,7 @@ function BlockProgress({ clientId }) {
           {plans.length > 0 && (
             <select
               className="block-progress__plan-select"
-              value={currentPlan?.id || ''}
+              value={selectedPlanId || ''}
               onChange={handlePlanChange}
             >
               {plans.map(p => (

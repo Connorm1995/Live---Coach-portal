@@ -705,6 +705,7 @@ router.get('/:id/block-progress', async (req, res) => {
         workouts: {},
         workoutNames: [],
         plan: { id: selectedPlan.id, name: selectedPlan.name, startDate: planStart, endDate: planEnd },
+        plans: plans.map(p => ({ id: p.id, name: p.name, startDate: p.startDate, endDate: p.endDate, order: p.order })),
       });
     }
 
