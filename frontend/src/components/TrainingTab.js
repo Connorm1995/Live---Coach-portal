@@ -456,7 +456,6 @@ function BlockProgress({ clientId }) {
   const workoutNames = data?.workoutNames || [];
   const workouts = data?.workouts || {};
   const plans = data?.plans || [];
-  const currentPlan = data?.plan;
 
   return (
     <div className="training-section">
