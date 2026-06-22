@@ -543,6 +543,33 @@ Reminders are controlled by a three-level hierarchy. All three levels must be en
 
 ---
 
+## Client Sync
+
+### Automatic Add via Webhook
+
+**What it does:** When a client is created in Trainerize, Trainerize fires a `client.added` webhook to `POST /webhooks/trainerize`. The `handleClientAdded` handler inserts the client into the `clients` table with `pending_setup = true`, `program = NULL`, `active = true`, and `trainerize_joined_at = now()`. The program is filled in later by the `userTag.addedToUser` webhook when Connor tags the client "Connor - MyFitCoach" or "Connor - Core MyFitCoach".
+
+**The gap this leaves:** The `client.added` webhook is fire-once and real-time. Trainerize does not retry it indefinitely. If the portal is down, mid-deploy, or the event is otherwise missed at the moment the client is created, that client is never added - there is nothing that re-checks Trainerize afterward. This actually happened: a client (Alan Flannery) was active in Trainerize for over two weeks but never appeared in the portal, because his `client.added` event was never processed and no row (not even a `pending_setup` stub) was ever created for him.
+
+---
+
+### Daily Reconciliation (Safety Net)
+
+**What it does:** Once per day, the scheduler pulls the full list of active clients from Trainerize and inserts anyone who is missing from the portal. This guarantees that a dropped `client.added` webhook can never again leave a paying client off the dashboard.
+
+**How it works:** `reconcileClients()` in `backend/lib/scheduler.js`:
+1. Fetches all active clients via `POST /user/getClientList` (`view: 'activeClient'`, paginated).
+2. Resolves the two program tags via `POST /userTag/getList` and builds a map of Trainerize userID to program, exactly as the one-time import script does.
+3. For each active client: if a row already exists by `trainerize_id`, it is skipped. If a row exists by email but has no `trainerize_id` (e.g. a webhook row whose userID lookup failed), it is linked rather than duplicated. Otherwise the client is inserted with `pending_setup = true` and the program from their tag (or NULL if untagged).
+
+**Safety guard:** If Trainerize returns an empty client list (almost always an API hiccup rather than a genuine zero), the run is skipped so the portal never acts on bad data.
+
+**Scheduling:** The job is gated to run at most once per Dublin calendar day, after 06:00. The "last run" day is tracked in memory. On a server restart it simply runs once more that day - this is harmless because the job is idempotent (it only inserts clients that are missing), and it doubles as a catch-up after any downtime. This matches the portal's existing "single coach, low volume, in-memory tracking is acceptable" philosophy used for reminders.
+
+**What it does not do:** Reconciliation only creates the client record. It does not backfill historical Trainerize data - that remains a separate manual step (`backend/db/backfill-trainerize.js`). A reconciled client starts populating data through the normal on-demand store layer and webhooks from the moment they are added.
+
+---
+
 ## Recovery Tab (Future Build)
 
 ### Available Trainerize API Data

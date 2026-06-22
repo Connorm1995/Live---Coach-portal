@@ -386,12 +386,158 @@ async function processReminders() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Daily client reconciliation
+// ---------------------------------------------------------------------------
+// Safety net for missed `client.added` webhooks. The webhook is fire-once and
+// real-time, with no retry - if the portal was down or mid-deploy when it
+// fired, that client never lands in the portal. Once a day we pull the full
+// active client list from Trainerize and insert anyone missing, so a dropped
+// webhook can never again leave a paying client off the dashboard.
+
+const COACH_TRAINERIZE_ID = 5343380; // Trainerize trainer/coach ID for this portal
+const RECONCILE_PAGE_SIZE = 100;
+
+// Tag name -> program (same mapping used by import-clients.js and the webhook handler)
+const TAG_PROGRAM_MAP = {
+  'Connor - MyFitCoach':      'my_fit_coach',
+  'Connor - Core MyFitCoach': 'my_fit_coach_core',
+};
+
+// Fetch all active Trainerize clients for this coach, paginated.
+async function fetchAllActiveTrainerizeClients() {
+  const clients = [];
+  let start = 0;
+  while (true) {
+    const data = await trainerizePost('/user/getClientList', {
+      userID: COACH_TRAINERIZE_ID, view: 'activeClient', start, count: RECONCILE_PAGE_SIZE,
+    });
+    const users = data.users || [];
+    clients.push(...users);
+    if (users.length < RECONCILE_PAGE_SIZE || clients.length >= (data.total || Infinity)) break;
+    start += RECONCILE_PAGE_SIZE;
+  }
+  return clients;
+}
+
+// Build a map of Trainerize userID -> program by resolving the two program tags.
+async function fetchProgramByUserId() {
+  const programByUserId = {};
+  let tagList;
+  try {
+    tagList = await trainerizePost('/userTag/getList', {});
+  } catch (e) {
+    console.warn('[Reconcile] Could not fetch tag list - clients will be added without a program:', e.message);
+    return programByUserId;
+  }
+  const programTags = (tagList.userTags || []).filter(t => TAG_PROGRAM_MAP[t.name]);
+  for (const t of programTags) {
+    let start = 0;
+    while (true) {
+      const data = await trainerizePost('/user/getClientList', {
+        userID: COACH_TRAINERIZE_ID, view: 'activeClient', filter: { userTag: t.id }, start, count: RECONCILE_PAGE_SIZE,
+      });
+      const users = data.users || [];
+      for (const u of users) programByUserId[u.id] = TAG_PROGRAM_MAP[t.name];
+      if (users.length < RECONCILE_PAGE_SIZE) break;
+      start += RECONCILE_PAGE_SIZE;
+    }
+  }
+  return programByUserId;
+}
+
+async function reconcileClients() {
+  try {
+    const clients = await fetchAllActiveTrainerizeClients();
+    if (!clients.length) {
+      // An empty list almost certainly means an API hiccup, not zero clients.
+      // Bail rather than risk acting on bad data.
+      console.warn('[Reconcile] Trainerize returned no active clients - skipping this run');
+      return;
+    }
+
+    const programByUserId = await fetchProgramByUserId();
+    let added = 0;
+    let linked = 0;
+
+    for (const c of clients) {
+      const trainerizeId = String(c.id);
+      const name = `${(c.firstName || '').trim()} ${(c.lastName || '').trim()}`.trim();
+      const email = (c.email || '').toLowerCase() || null;
+      if (!name) continue;
+
+      // Already linked by trainerize_id - nothing to do.
+      const byTid = await pool.query(
+        `SELECT id FROM clients WHERE trainerize_id = $1 AND coach_id = $2`,
+        [trainerizeId, COACH_ID]
+      );
+      if (byTid.rows.length > 0) continue;
+
+      // A row may exist by email but with no trainerize_id (e.g. the webhook
+      // created it before the userID lookup resolved). Link it, don't duplicate.
+      if (email) {
+        const byEmail = await pool.query(
+          `SELECT id, trainerize_id FROM clients WHERE lower(email) = $1 AND coach_id = $2`,
+          [email, COACH_ID]
+        );
+        if (byEmail.rows.length > 0) {
+          const row = byEmail.rows[0];
+          if (!row.trainerize_id) {
+            await pool.query(
+              `UPDATE clients SET trainerize_id = $1, program = COALESCE(program, $2) WHERE id = $3`,
+              [trainerizeId, programByUserId[c.id] || null, row.id]
+            );
+            console.log(`[Reconcile] Linked "${name}" (id=${row.id}) to trainerize_id=${trainerizeId}`);
+            linked++;
+          }
+          continue;
+        }
+      }
+
+      // Genuinely missing - insert mirroring the webhook path (pending_setup,
+      // trainerize_joined_at = now). Historical backfill stays a separate manual step.
+      const program = programByUserId[c.id] || null;
+      const ins = await pool.query(
+        `INSERT INTO clients (coach_id, trainerize_id, name, email, program, pending_setup, active, trainerize_joined_at)
+         VALUES ($1, $2, $3, $4, $5, true, true, now())
+         RETURNING id`,
+        [COACH_ID, trainerizeId, name, email, program]
+      );
+      console.log(`[Reconcile] Added missing client "${name}" (id=${ins.rows[0].id}, trainerize_id=${trainerizeId}, program=${program || 'pending'})`);
+      added++;
+    }
+
+    if (added || linked) {
+      console.log(`[Reconcile] Done - ${added} added, ${linked} linked, ${clients.length} active checked.`);
+    } else {
+      console.log(`[Reconcile] Done - all ${clients.length} active Trainerize clients already present.`);
+    }
+  } catch (err) {
+    console.error('[Reconcile] Error:', err.message);
+  }
+}
+
+// Gate reconciliation to run at most once per Dublin calendar day, after 06:00.
+// In-memory tracking is intentional: on restart it simply runs once more that
+// day, which is harmless (the job is idempotent) and useful as a catch-up.
+let lastReconcileDay = null;
+async function maybeReconcileClients() {
+  const dublin = getDublinTime();
+  const dayKey = `${dublin.year}-${String(dublin.month).padStart(2, '0')}-${String(dublin.day).padStart(2, '0')}`;
+  if (dayKey === lastReconcileDay) return;
+  if (dublin.hour < 6) return;
+  lastReconcileDay = dayKey;
+  console.log(`[Reconcile] Running daily client reconciliation (${dayKey} Dublin)`);
+  await reconcileClients();
+}
+
 function startScheduler() {
   console.log('[Scheduler] Started - checking every 60 seconds (all times UTC)');
   setInterval(async () => {
     await processScheduledMessages();
     await processScheduledPosts();
     await processReminders();
+    await maybeReconcileClients();
   }, 60 * 1000);
 
   // Run on startup after 5s delay to catch any due items
@@ -399,7 +545,8 @@ function startScheduler() {
     await processScheduledMessages();
     await processScheduledPosts();
     await processReminders();
+    await maybeReconcileClients();
   }, 5000);
 }
 
-module.exports = { startScheduler, normalizeBody };
+module.exports = { startScheduler, normalizeBody, reconcileClients };
