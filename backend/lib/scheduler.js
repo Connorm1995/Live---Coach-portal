@@ -2,6 +2,23 @@ const pool = require('../db/pool');
 const { getCurrentCycleSunday, getCurrentMonthFirst, getEomDeadlineMonday } = require('./cycle');
 const { trainerizePostRaw: trainerizePost, trainerizeUploadFile } = require('./trainerize');
 
+/**
+ * Normalize line endings before sending text to Trainerize.
+ * Posts composed/pasted from Word, Outlook, Notes etc. carry Windows CRLF
+ * (\r\n) line endings. Trainerize's message renderer counts the \r and the \n
+ * as separate breaks, so every line break shows up doubled. We collapse CRLF
+ * (and lone CR) to a single LF, then cap runs at one blank line so paragraph
+ * spacing renders as intended. Applied on send only - stored text is untouched.
+ */
+function normalizeBody(body) {
+  if (!body) return body;
+  return body
+    .replace(/\r\n/g, '\n')      // Windows CRLF -> LF (this is what causes the doubling)
+    .replace(/\r/g, '\n')        // any lone CR -> LF
+    .replace(/[ \t]+\n/g, '\n')  // strip trailing spaces on a line (handles the "\n \n" variant)
+    .replace(/\n{3,}/g, '\n\n');  // cap at one blank line between paragraphs
+}
+
 async function processScheduledMessages() {
   try {
     // send_at is stored as UTC TIMESTAMPTZ, now() is UTC - direct comparison works
@@ -18,13 +35,13 @@ async function processScheduledMessages() {
       try {
         let payload;
         if (msg.trainerize_thread_id) {
-          payload = { threadID: msg.trainerize_thread_id, body: msg.body, type: 'text' };
+          payload = { threadID: msg.trainerize_thread_id, body: normalizeBody(msg.body), type: 'text' };
           if (msg.file_token) payload.fileToken = msg.file_token;
           await trainerizePost('/message/reply', payload);
         } else if (msg.trainerize_id) {
           payload = {
             recipients: [Number(msg.trainerize_id)],
-            body: msg.body,
+            body: normalizeBody(msg.body),
             threadType: 'mainThread',
             conversationType: 'single',
             type: 'text',
@@ -86,8 +103,8 @@ async function processScheduledPosts() {
           console.log(`[Scheduler] Attachment uploaded for post ${post.id}`);
         }
 
-        // Send the text body
-        const payload = { threadID: post.group_thread_id, body: post.body, type: 'text' };
+        // Send the text body (normalize line endings so Trainerize doesn't double the spacing)
+        const payload = { threadID: post.group_thread_id, body: normalizeBody(post.body), type: 'text' };
         await trainerizePost('/message/reply', payload);
 
         await pool.query(
@@ -385,4 +402,4 @@ function startScheduler() {
   }, 5000);
 }
 
-module.exports = { startScheduler };
+module.exports = { startScheduler, normalizeBody };

@@ -2,7 +2,7 @@
 
 This document explains the reasoning behind every logic decision in the portal. Written so a non-technical person can read it and understand exactly why the portal behaves the way it does.
 
-Last updated: March 2026
+Last updated: June 2026
 
 ---
 
@@ -407,6 +407,26 @@ The gauge shows one threshold at 10% of total daily calories, which is the WHO (
 **How groups are fetched:** The backend calls `POST /userGroup/getList` with `view: "mine"` to get all groups Connor belongs to. Each group returns `id`, `name`, `threadID`, and `type`. The `threadID` is the key field - it is what connects a group to its message feed.
 
 **Why message/reply and not message/send:** The group thread already exists (created when the group was set up in Trainerize). Posting to it is a reply to that thread, not starting a new conversation. Using `message/reply` with the group's `threadID` appends the post to the group feed exactly as if Connor had typed it in the Trainerize app.
+
+---
+
+### Line-Ending Normalization on Send
+
+**What it does:** Just before a scheduled post (or scheduled DM) is sent to Trainerize, the message body is run through a `normalizeBody()` helper in `backend/lib/scheduler.js`. This helper converts Windows line endings to plain line feeds, strips trailing spaces on each line, and caps consecutive blank lines so paragraph spacing is at most one blank line.
+
+**The problem it fixes:** Posts composed or pasted from Word, Outlook, Apple Notes, or email carry Windows-style `\r\n` (carriage-return + line-feed) line endings, and some carried a `\r\n \r\n` pattern (a "blank" line containing a single space) between paragraphs. Trainerize's message renderer counts the `\r` and the `\n` as two separate line breaks, so every single line break arrived doubled and every paragraph gap arrived tripled or worse. The result was posts with huge vertical gaps between sentences in the Trainerize group feed.
+
+**Why it was hard to spot:** The portal's own scheduled-post preview renders the body inside a `<p>` element with the browser default `white-space: normal`, which collapses all runs of whitespace (spaces, `\r`, `\n`) down to a single space. So in the portal the spacing always looked correct - the extra line breaks were only visible once Trainerize rendered the raw text. The raw stored bytes confirmed the `\r\n` and `\r\n \r\n` patterns.
+
+**What the helper does, in order:**
+1. `\r\n` to `\n` - collapses Windows CRLF to a single line feed (this is what removes the doubling).
+2. lone `\r` to `\n` - catches any stray carriage returns.
+3. trailing spaces/tabs before a newline are stripped - handles the `\n \n` variant where a "blank" line held a space.
+4. three or more consecutive newlines are capped at two - one blank line maximum between paragraphs.
+
+**Why on send, not on store:** The normalization runs at send time only. The stored `body` in the `scheduled_posts` and `scheduled_messages` tables is never rewritten, so existing scheduled content is never modified or at risk of being mangled or deleted. Every pending item - already-scheduled and future - automatically passes through the same fix when the scheduler fires, with no migration or bulk edit needed.
+
+**Where it applies:** Group posts (`processScheduledPosts`) and scheduled DMs (`processScheduledMessages`, both the thread-reply and new-conversation paths). Reminder DMs use clean hardcoded text and do not need it.
 
 ---
 
