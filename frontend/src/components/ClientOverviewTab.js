@@ -79,7 +79,15 @@ const CHECKIN_PANEL_FIELDS = [
   { key: 'progressDirection', label: 'Progress direction', type: 'choice' },
   { key: 'helpNeeded', label: 'Help needed', type: 'text' },
   { key: 'upcomingEvents', label: 'Upcoming', type: 'text' },
+  // End of Month report only - hidden on weekly check-ins (null = followup hides)
+  { key: 'directionConfidence', label: 'Confidence in direction', type: 'followup' },
+  { key: 'hindsight', label: 'In hindsight', type: 'followup' },
 ];
+
+const CHECKIN_TYPE_LABELS = {
+  weekly: 'Weekly check-in',
+  eom_report: 'End of Month report',
+};
 
 const BLOCK_LABELS = ['Overall', 'Training', 'Steps', 'Nutrition', 'Sleep', 'Digestion', 'Stress'];
 const BLOCK_KEYS = ['overall', 'training', 'steps', 'nutrition', 'sleep', 'digestion', 'stress'];
@@ -230,6 +238,7 @@ function CheckinPanel({
           &#8249;
         </button>
         <span className="checkin-panel__nav-label">
+          {CHECKIN_TYPE_LABELS[ci?.type] ? `${CHECKIN_TYPE_LABELS[ci.type]} - ` : ''}
           {checkinIndex === 0 ? 'Current' : mondayLabel}
         </span>
         <button

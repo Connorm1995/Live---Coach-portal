@@ -787,12 +787,16 @@ router.get('/:id', async (req, res) => {
   _timedOutSections = [];
   try {
     const clientResult = await pool.query(
-      `SELECT id, name, trainerize_id, current_phase FROM clients WHERE id = $1 AND coach_id = $2`,
+      `SELECT id, name, trainerize_id, current_phase, program FROM clients WHERE id = $1 AND coach_id = $2`,
       [id, COACH_ID]
     );
     if (clientResult.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
     const client = clientResult.rows[0];
     const tid = client.trainerize_id;
+
+    // Core clients check in via the End of Month report; everyone else weekly.
+    // The Overview check-in panel must surface whichever type the client uses.
+    const checkinType = client.program === 'my_fit_coach_core' ? 'eom_report' : 'weekly';
 
     const prevWeek = getPreviousFullWeek();
     const last10 = getLast10Days();
@@ -816,18 +820,18 @@ router.get('/:id', async (req, res) => {
       calendarDays,
       trainingCompliance,
     ] = await Promise.all([
-      // Check-in data
+      // Check-in data - type depends on the client's program (weekly vs EOM)
       pool.query(
         `SELECT form_data FROM checkins
-         WHERE client_id = $1 AND coach_id = $2 AND type = 'weekly'
+         WHERE client_id = $1 AND coach_id = $2 AND type = $3
          ORDER BY submitted_at DESC LIMIT 1`,
-        [id, COACH_ID]
+        [id, COACH_ID, checkinType]
       ),
       pool.query(
-        `SELECT id, form_data, cycle_start, submitted_at, responded, responded_at FROM checkins
-         WHERE client_id = $1 AND coach_id = $2 AND type = 'weekly' AND form_data IS NOT NULL
+        `SELECT id, type, form_data, cycle_start, submitted_at, responded, responded_at FROM checkins
+         WHERE client_id = $1 AND coach_id = $2 AND type = $3 AND form_data IS NOT NULL
          ORDER BY submitted_at DESC LIMIT 8`,
-        [id, COACH_ID]
+        [id, COACH_ID, checkinType]
       ),
       pool.query(
         `SELECT week_start::text AS week_start, focus_text FROM weekly_focus
@@ -873,6 +877,7 @@ router.get('/:id', async (req, res) => {
       const fa = parseFormAnswers(row.form_data);
       return {
         id: row.id,
+        type: row.type,
         cycleStart: row.cycle_start,
         submittedAt: row.submitted_at,
         responded: row.responded,

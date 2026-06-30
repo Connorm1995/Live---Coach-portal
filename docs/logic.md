@@ -570,6 +570,21 @@ Reminders are controlled by a three-level hierarchy. All three levels must be en
 
 ---
 
+## Overview Check-in Panel - Program-Aware Check-in Type
+
+**What it does:** The check-in panel on a client's Overview tab shows their most recent check-in (latest first, with navigation to older ones). Which check-in type it pulls now depends on the client's program:
+
+- **My Fit Coach** clients - their **weekly** check-ins.
+- **My Fit Coach Core** clients - their **End of Month report**.
+
+**The problem it fixes:** The panel previously queried `type = 'weekly'` only. Core clients do not submit weekly check-ins - they submit EOM reports - so their latest EOM never appeared, and the panel showed a stale weekly check-in from months earlier (or nothing). Carlo Salizzo submitted a June EOM report that was correctly stored and showed in the Check-in Hub, but his Overview kept showing a weekly check-in from March because of this filter.
+
+**How it works:** `client-overview.js` `/summary` derives `checkinType` from `client.program` (`my_fit_coach_core` to `eom_report`, otherwise `weekly`) and uses it to fetch both the latest check-in and the trend. The EOM Typeform uses readable field refs (`eom-training-rating`, `eom-days-on-plan`, `eom-progress-direction`, etc.) that map onto the same seven score categories, days-on-plan, and progress-direction as the weekly form. So `parseScores` and `parseFormAnswers` in `overview-parsers.js` were extended to recognise both ref styles and produce one identical shape - the existing score blocks, weighted total out of 45, and trend all work unchanged for EOM reports.
+
+**EOM-only fields:** The EOM report has two fields with no weekly equivalent - "Confidence in direction" (a 1-10 rating surfaced as text, e.g. "7/10") and "In hindsight". These render as follow-up fields in the panel, so they appear for EOM reports and stay hidden for weekly check-ins (where they are null). The panel header labels the check-in type ("End of Month report" vs "Weekly check-in") so the coach always knows which form they are reading.
+
+---
+
 ## Recovery Tab (Future Build)
 
 ### Available Trainerize API Data
