@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex" />
+<title>Weekly Check-In - MyFitCoach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* Dark Typeform-style theme. Variable names keep their portal meanings
+     but are inverted for dark: --color-black = text, --color-white = background. */
+  :root {
+    --color-black: #ffffff;
+    --color-slate: rgba(255, 255, 255, 0.84);
+    --color-teal: #5CD6C8;
+    --color-teal-bright: #7ce3d7;
+    --color-white: #000000;
+    --color-off-white: #1b2624;
+    --color-border: rgba(92, 214, 200, 0.5);
+    --color-red: #ef4444;
+    --color-amber: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    font-family: 'Roboto Slab', serif;
+    background: var(--color-white);
+    color: var(--color-black);
+    overflow: hidden;
+  }
+  .checkin__progress {
+    position: fixed; top: 0; left: 0; right: 0; height: 4px;
+    background: var(--color-off-white); z-index: 10;
+  }
+  .checkin__progress-fill {
+    height: 100%; width: 0%;
+    background: var(--color-teal);
+    transition: width 300ms ease;
+  }
+  .checkin__brand {
+    position: fixed; top: 20px; left: 24px;
+    font-weight: 700; font-size: 15px; letter-spacing: -0.01em;
+    color: var(--color-black); z-index: 10;
+  }
+  .checkin__brand span { color: var(--color-teal); }
+  .checkin__save-status {
+    position: fixed; top: 20px; right: 24px;
+    font-size: 12px; color: var(--color-slate); z-index: 10;
+    opacity: 0; transition: opacity 300ms ease;
+  }
+  .checkin__save-status--visible { opacity: 1; }
+  .checkin__save-status--error { color: var(--color-amber); }
+  .checkin__viewport {
+    height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 40px;
+  }
+  .checkin__step {
+    max-width: 640px; width: 100%;
+    opacity: 0; transform: translateY(28px);
+    transition: opacity 320ms ease, transform 320ms ease;
+    position: absolute; pointer-events: none;
+  }
+  .checkin__step--active {
+    opacity: 1; transform: translateY(0);
+    position: relative; pointer-events: auto;
+  }
+  .checkin__step--leaving-up { opacity: 0; transform: translateY(-28px); }
+  .checkin__question-number {
+    font-size: 14px; color: var(--color-teal); font-weight: 500;
+    margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .checkin__question-number svg { width: 12px; height: 12px; }
+  .checkin__question {
+    font-size: 28px; font-weight: 600; line-height: 1.25;
+    letter-spacing: -0.02em; margin-bottom: 12px;
+  }
+  .checkin__hint {
+    font-size: 15px; color: var(--color-slate);
+    margin-bottom: 32px; line-height: 1.5;
+  }
+  .checkin__scale {
+    display: grid; grid-template-columns: repeat(10, 1fr);
+    gap: 8px; margin-bottom: 12px;
+  }
+  .checkin__scale-btn {
+    aspect-ratio: 1 / 1.15;
+    border: 1px solid var(--color-border); border-radius: 10px;
+    background: rgba(92, 214, 200, 0.1);
+    font-family: 'Roboto Slab', serif; font-size: 18px; font-weight: 500;
+    color: var(--color-teal); cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+  .checkin__scale-btn:hover { border-color: var(--color-teal); background: rgba(92, 214, 200, 0.12); }
+  .checkin__scale-btn--selected {
+    background: var(--color-teal); border-color: var(--color-teal); color: var(--color-white);
+  }
+  .checkin__scale-btn:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; }
+  .checkin__scale-labels {
+    display: flex; justify-content: space-between;
+    font-size: 13px; color: var(--color-slate); margin-bottom: 24px;
+  }
+  .checkin__scale-label-mid { text-align: center; }
+  .checkin__choices--multi { max-height: 52vh; overflow-y: auto; padding-right: 4px; }
+  .checkin__section-heading {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--color-slate); font-weight: 600;
+    margin: 16px 0 4px;
+  }
+  .checkin__other-input {
+    width: 100%;
+    border: none; border-bottom: 2px solid var(--color-border);
+    font-family: 'Roboto Slab', serif; font-size: 18px; font-weight: 300;
+    color: var(--color-teal);
+    padding: 8px 0; margin-top: 4px;
+    background: transparent;
+    transition: border-color 150ms ease;
+  }
+  .checkin__other-input:focus { outline: none; border-bottom-color: var(--color-teal); }
+  .checkin__other-input::placeholder { color: rgba(255, 255, 255, 0.5); }
+  .checkin__choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .checkin__choice {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px;
+    border: 1px solid var(--color-border); border-radius: 10px;
+    background: rgba(92, 214, 200, 0.1);
+    font-family: 'Roboto Slab', serif; font-size: 16px; color: var(--color-teal);
+    cursor: pointer; text-align: left;
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .checkin__choice:hover { border-color: var(--color-teal); background: rgba(92, 214, 200, 0.12); }
+  .checkin__choice--selected { border-color: var(--color-teal); background: rgba(92, 214, 200, 0.12); }
+  .checkin__choice:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; }
+  .checkin__choice-key {
+    width: 26px; height: 26px;
+    border: 1px solid var(--color-border); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: var(--color-slate);
+    flex-shrink: 0; background: var(--color-off-white);
+  }
+  .checkin__choice--selected .checkin__choice-key {
+    background: var(--color-teal); border-color: var(--color-teal); color: var(--color-white);
+  }
+  .checkin__textarea {
+    width: 100%;
+    border: none; border-bottom: 2px solid var(--color-border);
+    font-family: 'Roboto Slab', serif; font-size: 20px; font-weight: 300;
+    color: var(--color-teal);
+    padding: 8px 0; margin-bottom: 24px;
+    background: transparent; resize: none; min-height: 96px; line-height: 1.5;
+    transition: border-color 150ms ease;
+  }
+  .checkin__textarea:focus { outline: none; border-bottom-color: var(--color-teal); }
+  .checkin__textarea::placeholder { color: rgba(255, 255, 255, 0.5); }
+  .checkin__input {
+    width: 100%;
+    border: none; border-bottom: 2px solid var(--color-border);
+    font-family: 'Roboto Slab', serif; font-size: 22px; font-weight: 300;
+    color: var(--color-teal);
+    padding: 8px 0; margin-bottom: 24px;
+    background: transparent;
+    transition: border-color 150ms ease;
+    color-scheme: dark;
+  }
+  .checkin__input:focus { outline: none; border-bottom-color: var(--color-teal); }
+  .checkin__input::placeholder { color: rgba(255, 255, 255, 0.5); }
+  .checkin__optional { font-size: 16px; font-weight: 400; color: var(--color-slate); }
+  .checkin__actions { display: flex; align-items: center; gap: 12px; }
+  .checkin__btn {
+    background: var(--color-teal); color: var(--color-white);
+    border: none; border-radius: 10px;
+    padding: 12px 28px;
+    font-family: 'Roboto Slab', serif; font-size: 16px; font-weight: 500;
+    cursor: pointer;
+    transition: background-color 150ms ease, transform 80ms ease;
+  }
+  .checkin__btn:hover { background: var(--color-teal-bright); }
+  .checkin__btn:active { transform: scale(0.97); }
+  .checkin__btn:focus-visible { outline: 2px solid var(--color-black); outline-offset: 2px; }
+  .checkin__btn:disabled { opacity: 0.6; cursor: default; }
+  .checkin__enter-hint { font-size: 13px; color: var(--color-slate); }
+  .checkin__enter-hint strong { font-weight: 600; }
+  .checkin__nav {
+    position: fixed; bottom: 20px; right: 24px;
+    display: flex; gap: 4px; z-index: 10;
+  }
+  .checkin__nav-btn {
+    width: 44px; height: 44px;
+    border: 1px solid rgba(92, 214, 200, 0.7);
+    background: rgba(92, 214, 200, 0.16); border-radius: 8px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--color-teal);
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .checkin__nav-btn:hover:not(:disabled) { background: rgba(92, 214, 200, 0.32); color: var(--color-black); }
+  .checkin__nav-btn:disabled { opacity: 0.4; cursor: default; }
+  .checkin__nav-btn svg { stroke-width: 2.5; }
+  @keyframes checkin-nudge {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+  .checkin__step--nudge { animation: checkin-nudge 220ms ease; }
+  .checkin__nav-btn svg { width: 16px; height: 16px; }
+  .checkin__welcome-title, .checkin__end-title {
+    font-size: 34px; font-weight: 700;
+    letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 16px;
+  }
+  .checkin__welcome-sub, .checkin__end-sub {
+    font-size: 17px; color: var(--color-slate);
+    line-height: 1.5; margin-bottom: 32px;
+  }
+  .checkin__welcome-body { margin-bottom: 32px; }
+  .checkin__welcome-body p {
+    font-size: 16px; color: var(--color-slate);
+    line-height: 1.55; margin-bottom: 16px;
+  }
+  .checkin__welcome-body p:last-child { margin-bottom: 0; }
+  .checkin__welcome-body strong { color: var(--color-black); font-weight: 600; }
+  .checkin__note {
+    display: inline-block;
+    background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); color: #fbbf24;
+    border-radius: 10px; padding: 10px 16px;
+    font-size: 14px; margin-bottom: 24px; line-height: 1.5;
+  }
+  .checkin__error-box {
+    background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.45); color: #f87171;
+    border-radius: 10px; padding: 14px 18px;
+    font-size: 15px; line-height: 1.5; margin-bottom: 24px;
+  }
+  .checkin__time-estimate {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--color-slate); margin-left: 12px;
+  }
+  .checkin__result { text-align: center; }
+  .checkin__result-eyebrow {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--color-teal); font-weight: 600; margin-bottom: 8px;
+  }
+  .checkin__gauge { width: 100%; max-width: 520px; height: auto; display: block; margin: 0 auto; }
+  .checkin__result-band {
+    font-size: 30px; font-weight: 700; letter-spacing: -0.01em;
+    margin: 4px 0 24px;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+  }
+  .checkin__result-check {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .checkin__result-check svg { width: 18px; height: 18px; }
+  .checkin__result-msg {
+    font-size: 19px; color: var(--color-slate);
+    line-height: 1.55; margin: 0 auto 18px; max-width: 560px;
+  }
+  .checkin__result-msg:first-of-type { color: var(--color-black); font-size: 21px; }
+  .checkin__spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(0,0,0,0.35); border-top-color: #000000;
+    border-radius: 50%;
+    display: inline-block; vertical-align: -4px; margin-right: 8px;
+    animation: spin 700ms linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 640px) {
+    .checkin__viewport { padding: 0 24px; }
+    .checkin__question { font-size: 22px; }
+    .checkin__welcome-title, .checkin__end-title { font-size: 26px; }
+    .checkin__scale { grid-template-columns: repeat(5, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="checkin__progress"><div class="checkin__progress-fill" id="progressFill"></div></div>
+<div class="checkin__brand">MY<span>FIT</span>COACH</div>
+<div class="checkin__save-status" id="saveStatus" aria-live="polite"></div>
+<div class="checkin__viewport" id="viewport"></div>
+<div class="checkin__nav">
+  <button class="checkin__nav-btn" id="navUp" title="Previous question" aria-label="Previous question">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10l5-5 5 5"/></svg>
+  </button>
+  <button class="checkin__nav-btn" id="navDown" title="Next question" aria-label="Next question">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l5 5 5-5"/></svg>
+  </button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // URL shapes: /checkin/<token>, /monthly/<token> (personal links) or
+  // /join (public onboarding - draft keyed by a UUID held in localStorage)
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const FORM = pathParts[0];
+  const TOKEN = pathParts[1] || null;
+  const IS_PUBLIC = FORM === 'join';
+  const base = IS_PUBLIC ? '/api/join' : '/api/' + FORM + '/' + TOKEN;
+  const API = {
+    state: base + '/state',
+    draft: base + '/draft',
+    submit: base + '/submit',
+  };
+
+  let questions = [];
+  let firstName = '';
+  let welcomeCopy = null;
+  let doneCopy = null;
+  let submittedThisCycle = false;
+  let submissionUuid = null;
+  const answers = {};
+  let currentIndex = 0;
+  let submitting = false;
+
+  // ------------------------------------------------------------
+  // Autosave - fires after every answer; retries quietly
+  // ------------------------------------------------------------
+  let saveTimer = null;
+  let savePending = false;
+
+  function scheduleSave() {
+    savePending = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 400);
+  }
+
+  async function flushSave() {
+    if (!savePending) return;
+    savePending = false;
+    try {
+      const res = await fetch(API.draft, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: answers, submissionUuid: submissionUuid }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      showSaveStatus('Saved', false);
+    } catch (e) {
+      savePending = true; // retry on next answer or flush
+      showSaveStatus('Offline - answers held on this device', true);
+    }
+  }
+
+  // Flush pending saves when the client backgrounds the tab / locks phone
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden' && savePending) {
+      navigator.sendBeacon(
+        API.draft,
+        new Blob([JSON.stringify({ answers: answers, submissionUuid: submissionUuid })], { type: 'application/json' })
+      );
+      savePending = false;
+    }
+  });
+
+  let saveStatusTimer = null;
+  function showSaveStatus(text, isError) {
+    const el = document.getElementById('saveStatus');
+    el.textContent = text;
+    el.className = 'checkin__save-status checkin__save-status--visible' + (isError ? ' checkin__save-status--error' : '');
+    clearTimeout(saveStatusTimer);
+    if (!isError) saveStatusTimer = setTimeout(function () { el.classList.remove('checkin__save-status--visible'); }, 1500);
+  }
+
+  // ------------------------------------------------------------
+  // Flow
+  // ------------------------------------------------------------
+  function conditionMet(cond) {
+    if (!cond) return true;
+    const v = answers[cond.field];
+    if (v == null) return false;
+    if (cond.op === 'includes') return Array.isArray(v) && v.indexOf(cond.value) !== -1;
+    return cond.op === 'lte' ? v <= cond.value : v >= cond.value;
+  }
+
+  function visibleSteps() {
+    const qs = questions.filter(function (q) { return conditionMet(q.conditional); });
+    return [{ kind: 'welcome' }].concat(qs, [{ kind: 'end' }]);
+  }
+
+  function firstUnansweredIndex() {
+    const visible = visibleSteps();
+    for (let i = 1; i < visible.length - 1; i++) {
+      const q = visible[i];
+      if (q.kind === 'textarea') { if (answers[q.id] == null) return i; }
+      else if (answers[q.id] == null) return i;
+    }
+    return 0;
+  }
+
+  function render() {
+    const visible = visibleSteps();
+    if (currentIndex >= visible.length) currentIndex = visible.length - 1;
+    const step = visible[currentIndex];
+    const viewport = document.getElementById('viewport');
+
+    const progress = step.kind === 'end' ? 100 : Math.round((currentIndex / (visible.length - 1)) * 100);
+    document.getElementById('progressFill').style.width = progress + '%';
+
+    const el = document.createElement('div');
+    el.className = 'checkin__step';
+    el.innerHTML = renderStep(step);
+
+    const old = viewport.querySelector('.checkin__step--active');
+    if (old) {
+      old.classList.remove('checkin__step--active');
+      old.classList.add('checkin__step--leaving-up');
+      setTimeout(function () { old.remove(); }, 320);
+    }
+    viewport.appendChild(el);
+    void el.offsetWidth; // force reflow so the enter transition runs even in hidden tabs
+    el.classList.add('checkin__step--active');
+
+    bindStep(el, step);
+    updateNav(visible);
+
+    const input = el.querySelector('textarea');
+    if (input) setTimeout(function () { input.focus(); }, 350);
+  }
+
+  function renderStep(step) {
+    const numberBadge = step.number
+      ? '<div class="checkin__question-number">' + step.number +
+        ' <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 6h8M7 3l3 3-3 3"/></svg></div>'
+      : '';
+
+    if (step.kind === 'welcome') {
+      const note = submittedThisCycle
+        ? '<div class="checkin__note">' + escapeHtml(welcomeCopy.alreadySubmitted) + '</div>'
+        : '';
+      // Welcome paragraphs come from the server config and may contain
+      // <strong> markup - trusted content, not client input.
+      return '<div class="checkin__welcome-title">Hi ' + escapeHtml(firstName) + escapeHtml(welcomeCopy.title) + '</div>' +
+        '<div class="checkin__welcome-body">' +
+        welcomeCopy.paragraphs.map(function (p) { return '<p>' + p + '</p>'; }).join('') +
+        '</div>' +
+        note +
+        '<div class="checkin__actions">' +
+        '<button class="checkin__btn" data-action="next">' + escapeHtml(welcomeCopy.cta) + '</button>' +
+        '<span class="checkin__time-estimate">' + escapeHtml(welcomeCopy.time) + '</span>' +
+        '</div>';
+    }
+
+    if (step.kind === 'end') {
+      return '<div class="checkin__end-title">Ready to send?</div>' +
+        '<div class="checkin__end-sub">Hit submit and your check-in comes straight through to me.</div>' +
+        '<div id="submitError"></div>' +
+        '<div class="checkin__actions">' +
+        '<button class="checkin__btn" id="submitBtn">Submit check-in</button>' +
+        '</div>';
+    }
+
+    if (step.kind === 'done') {
+      if (!step.endScreen) {
+        if (doneCopy) {
+          return '<div class="checkin__end-title">' + escapeHtml(doneCopy.title) + '</div>' +
+            '<div class="checkin__end-sub">' + escapeHtml(doneCopy.sub) + '</div>';
+        }
+        return '<div class="checkin__end-title">Thanks, ' + escapeHtml(firstName) + '. Check-in received.</div>' +
+          '<div class="checkin__end-sub">I will review this and come back to you with your feedback. Keep the head down this week.</div>';
+      }
+      const es = step.endScreen;
+      return '<div class="checkin__result">' +
+        '<div class="checkin__result-eyebrow">Check-in received</div>' +
+        gaugeSvg(es.key) +
+        '<div class="checkin__result-band">' + escapeHtml(es.label) +
+        '<span class="checkin__result-check" style="background:' + escapeHtml(es.color) + '">' +
+        '<svg viewBox="0 0 16 16" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>' +
+        '</span></div>' +
+        es.messages.map(function (m) { return '<p class="checkin__result-msg">' + escapeHtml(m) + '</p>'; }).join('') +
+        '</div>';
+    }
+
+    if (step.kind === 'textarea') {
+      return numberBadge +
+        '<div class="checkin__question">' + escapeHtml(step.question) + (step.required === false ? ' <span class="checkin__optional">(optional)</span>' : '') + '</div>' +
+        (step.hint ? '<div class="checkin__hint">' + escapeHtml(step.hint) + '</div>' : '') +
+        '<textarea class="checkin__textarea" placeholder="Type your answer here..." aria-label="' + escapeHtml(step.question) + '">' +
+        escapeHtml(answers[step.id] || '') + '</textarea>' +
+        '<div class="checkin__actions">' +
+        '<button class="checkin__btn" data-action="next">OK</button>' +
+        '<span class="checkin__enter-hint">press <strong>Shift + Enter</strong> for a new line</span>' +
+        '</div>';
+    }
+
+    // Single-line inputs: text, email, phone, number, date
+    if (step.kind === 'text' || step.kind === 'email' || step.kind === 'phone' || step.kind === 'number' || step.kind === 'date') {
+      const typeAttr = { text: 'text', email: 'email', phone: 'tel', number: 'number', date: 'date' }[step.kind];
+      const inputMode = step.kind === 'number' ? ' inputmode="decimal"' : step.kind === 'phone' ? ' inputmode="tel"' : '';
+      const minMax = step.kind === 'number'
+        ? (step.min != null ? ' min="' + step.min + '"' : '') + (step.max != null ? ' max="' + step.max + '"' : '')
+        : '';
+      return numberBadge +
+        '<div class="checkin__question">' + escapeHtml(step.question) + '</div>' +
+        (step.hint ? '<div class="checkin__hint">' + escapeHtml(step.hint) + '</div>' : '') +
+        '<input class="checkin__input" type="' + typeAttr + '"' + inputMode + minMax +
+        ' placeholder="Type your answer here..." value="' + escapeHtml(answers[step.id] || '') + '"' +
+        ' aria-label="' + escapeHtml(step.question) + '" />' +
+        '<div class="checkin__actions">' +
+        '<button class="checkin__btn" data-action="next">OK</button>' +
+        '<span class="checkin__enter-hint">press <strong>Enter</strong></span>' +
+        '</div>';
+    }
+
+    if (step.kind === 'scale') {
+      let btns = '';
+      for (let v = 1; v <= 10; v++) {
+        const sel = answers[step.id] === v ? ' checkin__scale-btn--selected' : '';
+        btns += '<button class="checkin__scale-btn' + sel + '" data-value="' + v + '">' + v + '</button>';
+      }
+      const midLabel = step.mid ? '<span class="checkin__scale-label-mid">5 - ' + escapeHtml(step.mid) + '</span>' : '';
+      return numberBadge +
+        '<div class="checkin__question">' + escapeHtml(step.question) + '</div>' +
+        (step.hint ? '<div class="checkin__hint">' + escapeHtml(step.hint) + '</div>' : '') +
+        '<div class="checkin__scale">' + btns + '</div>' +
+        '<div class="checkin__scale-labels"><span>1 - ' + escapeHtml(step.low) + '</span>' + midLabel + '<span>10 - ' + escapeHtml(step.high) + '</span></div>';
+    }
+
+    if (step.kind === 'multichoice') {
+      const keys = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      const selected = Array.isArray(answers[step.id]) ? answers[step.id] : [];
+      let html = '';
+      let k = 0;
+      for (const section of step.sections) {
+        if (section.heading) html += '<div class="checkin__section-heading">' + escapeHtml(section.heading) + '</div>';
+        for (const opt of section.options) {
+          const sel = selected.indexOf(opt) !== -1 ? ' checkin__choice--selected' : '';
+          html += '<button class="checkin__choice' + sel + '" data-value="' + escapeHtml(opt) + '" data-multi="1">' +
+            '<span class="checkin__choice-key">' + keys[k++] + '</span>' + escapeHtml(opt) + '</button>';
+        }
+      }
+      if (step.otherOption) {
+        const otherSel = selected.indexOf('Other') !== -1;
+        html += '<button class="checkin__choice' + (otherSel ? ' checkin__choice--selected' : '') + '" data-value="Other" data-multi="1">' +
+          '<span class="checkin__choice-key">' + keys[k++] + '</span>Other</button>';
+        html += '<input class="checkin__other-input" id="otherInput" type="text" placeholder="Tell me what you need..." ' +
+          'style="display:' + (otherSel ? 'block' : 'none') + '" value="' + escapeHtml(answers[step.id + '_other'] || '') + '" ' +
+          'aria-label="Other - tell me what you need" />';
+      }
+      return numberBadge +
+        '<div class="checkin__question">' + escapeHtml(step.question) + '</div>' +
+        (step.hint ? '<div class="checkin__hint">' + escapeHtml(step.hint) + '</div>' : '') +
+        '<div class="checkin__choices checkin__choices--multi">' + html + '</div>' +
+        '<div class="checkin__actions">' +
+        '<button class="checkin__btn" data-action="next">OK</button>' +
+        '</div>';
+    }
+
+    if (step.kind === 'choice') {
+      const keys = 'ABCDEFG';
+      let opts = '';
+      step.options.forEach(function (opt, i) {
+        const sel = answers[step.id] === opt ? ' checkin__choice--selected' : '';
+        opts += '<button class="checkin__choice' + sel + '" data-value="' + escapeHtml(opt) + '">' +
+          '<span class="checkin__choice-key">' + keys[i] + '</span>' + escapeHtml(opt) + '</button>';
+      });
+      return numberBadge +
+        '<div class="checkin__question">' + escapeHtml(step.question) + '</div>' +
+        (step.hint ? '<div class="checkin__hint">' + escapeHtml(step.hint) + '</div>' : '') +
+        '<div class="checkin__choices">' + opts + '</div>';
+    }
+    return '';
+  }
+
+  function bindStep(el, step) {
+    el.querySelectorAll('[data-action="next"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const field = el.querySelector('textarea, input.checkin__input');
+        if (field) { answers[step.id] = field.value; scheduleSave(); }
+        tryAdvance();
+      });
+    });
+
+    const input = el.querySelector('input.checkin__input');
+    if (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          answers[step.id] = input.value;
+          scheduleSave();
+          tryAdvance();
+        }
+      });
+      input.addEventListener('input', function () {
+        answers[step.id] = input.value;
+        scheduleSave();
+      });
+    }
+
+    el.querySelectorAll('.checkin__scale-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        answers[step.id] = parseInt(btn.dataset.value, 10);
+        scheduleSave();
+        btn.classList.add('checkin__scale-btn--selected');
+        setTimeout(goNext, 220);
+      });
+    });
+
+    el.querySelectorAll('.checkin__choice').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.dataset.multi) {
+          // Multi-select: toggle, never auto-advance
+          const arr = Array.isArray(answers[step.id]) ? answers[step.id].slice() : [];
+          const v = btn.dataset.value;
+          const idx = arr.indexOf(v);
+          if (idx === -1) arr.push(v); else arr.splice(idx, 1);
+          answers[step.id] = arr;
+          btn.classList.toggle('checkin__choice--selected', idx === -1);
+          if (v === 'Other') {
+            const inp = el.querySelector('#otherInput');
+            if (inp) {
+              inp.style.display = idx === -1 ? 'block' : 'none';
+              if (idx === -1) inp.focus();
+            }
+          }
+          scheduleSave();
+          return;
+        }
+        answers[step.id] = btn.dataset.value;
+        scheduleSave();
+        btn.classList.add('checkin__choice--selected');
+        setTimeout(goNext, 220);
+      });
+    });
+
+    const otherInput = el.querySelector('#otherInput');
+    if (otherInput) {
+      otherInput.addEventListener('input', function () {
+        answers[step.id + '_other'] = otherInput.value;
+        scheduleSave();
+      });
+      otherInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); tryAdvance(); }
+      });
+    }
+
+    const ta = el.querySelector('textarea');
+    if (ta) {
+      ta.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          answers[step.id] = ta.value;
+          scheduleSave();
+          goNext();
+        }
+      });
+    }
+
+    const submitBtn = el.querySelector('#submitBtn');
+    if (submitBtn) submitBtn.addEventListener('click', doSubmit);
+  }
+
+  // ------------------------------------------------------------
+  // Submit - confirmed by the server before the thank-you screen,
+  // retried automatically, idempotent via submissionUuid
+  // ------------------------------------------------------------
+  async function doSubmit() {
+    if (submitting) return;
+    submitting = true;
+    const btn = document.getElementById('submitBtn');
+    const errBox = document.getElementById('submitError');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="checkin__spinner"></span>Sending - do not close';
+    errBox.innerHTML = '';
+
+    clearTimeout(saveTimer);
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(API.submit, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answers: answers, submissionUuid: submissionUuid }),
+        });
+        const body = await res.json().catch(function () { return {}; });
+
+        if (res.ok && body.ok) {
+          showDone(body.endScreen || null);
+          return;
+        }
+        if (res.status === 422) {
+          // Missing required answers - send them back to the first gap
+          errBox.innerHTML = '<div class="checkin__error-box">A couple of questions are missing an answer - taking you back to the first one.</div>';
+          submitting = false;
+          setTimeout(function () { currentIndex = firstUnansweredIndex(); render(); }, 1600);
+          return;
+        }
+        lastError = body.error || ('HTTP ' + res.status);
+      } catch (e) {
+        lastError = 'network';
+      }
+      await new Promise(function (r) { setTimeout(r, attempt * 1200); });
+    }
+
+    submitting = false;
+    btn.disabled = false;
+    btn.textContent = 'Try again';
+    errBox.innerHTML = '<div class="checkin__error-box">Could not send just now (' + escapeHtml(String(lastError)) + '). ' +
+      'Your answers are saved - nothing is lost. Check your connection and try again.</div>';
+  }
+
+  function showDone(endScreen) {
+    const viewport = document.getElementById('viewport');
+    document.getElementById('progressFill').style.width = '100%';
+    const el = document.createElement('div');
+    el.className = 'checkin__step';
+    el.innerHTML = renderStep({ kind: 'done', endScreen: endScreen });
+    const old = viewport.querySelector('.checkin__step--active');
+    if (old) {
+      old.classList.remove('checkin__step--active');
+      old.classList.add('checkin__step--leaving-up');
+      setTimeout(function () { old.remove(); }, 320);
+    }
+    viewport.appendChild(el);
+    void el.offsetWidth; // force reflow so the enter transition runs even in hidden tabs
+    el.classList.add('checkin__step--active');
+    finished = true;
+    document.querySelector('.checkin__nav').style.display = 'none';
+    if (IS_PUBLIC) {
+      // Fresh UUID for the next person who onboards on this device
+      try { localStorage.removeItem('mfc_join_uuid'); } catch (e) { /* private mode */ }
+    }
+  }
+
+  let finished = false;
+
+  function goNext() {
+    if (finished) return;
+    const visible = visibleSteps();
+    if (currentIndex < visible.length - 1) { currentIndex++; render(); }
+  }
+  function goBack() {
+    if (finished || submitting) return;
+    if (currentIndex > 0) { currentIndex--; render(); }
+  }
+
+  /** Can the client leave this step going forward? Scales and single-choice
+      always need an answer; other kinds only when marked required. */
+  function canAdvance(step) {
+    if (!step) return false;
+    if (step.kind === 'welcome') return true;
+    if (step.kind === 'end') return false;
+    if (step.kind === 'scale' || step.kind === 'choice') return answers[step.id] != null;
+    if (step.required) {
+      const v = answers[step.id];
+      if (v == null) return false;
+      if (Array.isArray(v)) return v.length > 0;
+      return String(v).trim() !== '';
+    }
+    return true;
+  }
+
+  /** Save any in-progress text on the active step before navigating away. */
+  function captureActiveText() {
+    const step = visibleSteps()[currentIndex];
+    if (!step) return;
+    const field = document.querySelector('.checkin__step--active textarea, .checkin__step--active input.checkin__input');
+    if (field && step.kind !== 'multichoice') { answers[step.id] = field.value; scheduleSave(); }
+  }
+
+  function tryAdvance() {
+    if (finished || submitting) return;
+    const step = visibleSteps()[currentIndex];
+    captureActiveText();
+    if (canAdvance(step)) { goNext(); return; }
+    // Blocked (unanswered scored question) - give a little shake as feedback
+    const el = document.querySelector('.checkin__step--active');
+    if (el) {
+      el.classList.remove('checkin__step--nudge');
+      void el.offsetWidth;
+      el.classList.add('checkin__step--nudge');
+    }
+  }
+  function updateNav(visible) {
+    document.getElementById('navUp').disabled = currentIndex === 0;
+    document.getElementById('navDown').disabled = currentIndex >= visible.length - 1;
+  }
+
+  document.getElementById('navUp').addEventListener('click', goBack);
+  document.getElementById('navDown').addEventListener('click', tryAdvance);
+
+  document.addEventListener('keydown', function (e) {
+    if (submitting || finished) return;
+    const visible = visibleSteps();
+    const step = visible[currentIndex];
+
+    // Arrow keys navigate, Typeform-style (up = back, down = forward if allowed)
+    if (e.key === 'ArrowUp') { e.preventDefault(); goBack(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); tryAdvance(); return; }
+    if (step.kind === 'scale' && /^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey) {
+      const v = e.key === '0' ? 10 : parseInt(e.key, 10);
+      answers[step.id] = v;
+      scheduleSave();
+      render();
+      setTimeout(goNext, 220);
+    }
+    if (step.kind === 'choice' && /^[a-gA-G]$/.test(e.key)) {
+      const idx = e.key.toUpperCase().charCodeAt(0) - 65;
+      if (step.options[idx]) {
+        answers[step.id] = step.options[idx];
+        scheduleSave();
+        render();
+        setTimeout(goNext, 220);
+      }
+    }
+    if (step.kind === 'multichoice' && /^[a-zA-Z]$/.test(e.key) && !e.metaKey && !e.ctrlKey) {
+      // Don't hijack letters while typing in the Other box
+      if (document.activeElement && document.activeElement.id === 'otherInput') return;
+      const flat = step.sections.flatMap(function (s) { return s.options; });
+      if (step.otherOption) flat.push('Other');
+      const idx = e.key.toUpperCase().charCodeAt(0) - 65;
+      if (flat[idx] != null) {
+        const btns = document.querySelectorAll('.checkin__step--active .checkin__choice[data-multi]');
+        for (let i = 0; i < btns.length; i++) {
+          if (btns[i].dataset.value === flat[idx]) { btns[i].click(); break; }
+        }
+      }
+    }
+  });
+
+  // Swipe navigation on touch devices: swipe up = next question (if allowed),
+  // swipe down = previous. Ignored on scrollable/typing areas so the multi-
+  // select list still scrolls and textareas still behave normally.
+  let touchStartY = null;
+  let touchStartX = null;
+  document.addEventListener('touchstart', function (e) {
+    touchStartY = e.touches[0].clientY;
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (touchStartY == null) return;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    touchStartY = touchStartX = null;
+    if (submitting || finished) return;
+    if (e.target && e.target.closest && e.target.closest('.checkin__choices--multi, textarea, input')) return;
+    if (Math.abs(dy) < 70 || Math.abs(dy) < Math.abs(dx) * 1.5) return;
+    if (dy < 0) tryAdvance(); else goBack();
+  }, { passive: true });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ------------------------------------------------------------
+  // Score gauge (end screen) - drawn as SVG, needle on the active band
+  // ------------------------------------------------------------
+  var GAUGE_BANDS = [
+    { key: 'critical', label: 'Critical', color: '#e53935' },
+    { key: 'under', label: 'Underperforming', color: '#f57c00' },
+    { key: 'stable', label: 'Stable', color: '#fdd835' },
+    { key: 'high', label: 'High Performance', color: '#8bc34a' },
+    { key: 'peak', label: 'Peak Performance', color: '#43a047' },
+  ];
+
+  function gaugeSvg(activeKey) {
+    const cx = 350, cy = 300, rOut = 190, rIn = 104;
+    function pt(angleDeg, r) {
+      const a = (Math.PI * angleDeg) / 180;
+      return (cx + r * Math.cos(a)).toFixed(1) + ' ' + (cy - r * Math.sin(a)).toFixed(1);
+    }
+    let svg = '<svg class="checkin__gauge" viewBox="0 30 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Weekly score gauge">';
+
+    GAUGE_BANDS.forEach(function (band, i) {
+      const a1 = 180 - i * 36;
+      const a2 = 180 - (i + 1) * 36;
+      svg += '<path d="M ' + pt(a1, rOut) + ' A ' + rOut + ' ' + rOut + ' 0 0 1 ' + pt(a2, rOut) +
+        ' L ' + pt(a2, rIn) + ' A ' + rIn + ' ' + rIn + ' 0 0 0 ' + pt(a1, rIn) + ' Z" ' +
+        'fill="' + band.color + '" stroke="#000000" stroke-width="4"/>';
+
+      // Tick + label at the segment centre (skip the active band - it gets the big title below)
+      if (band.key !== activeKey) {
+        const mid = 180 - (i * 36 + 18);
+        svg += '<line x1="' + pt(mid, rOut + 4).replace(' ', '" y1="') + '" x2="' + pt(mid, rOut + 20).replace(' ', '" y2="') + '" stroke="' + band.color + '" stroke-width="5"/>';
+        const rad = (Math.PI * mid) / 180;
+        const lx = cx + (rOut + 30) * Math.cos(rad);
+        const ly = cy - (rOut + 30) * Math.sin(rad);
+        const anchor = mid > 105 ? 'end' : mid < 75 ? 'start' : 'middle';
+        const words = band.label.split(' ');
+        svg += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="' + anchor + '" fill="#ffffff" font-family="Roboto Slab, serif" font-size="22" font-weight="600">';
+        if (words.length === 1 || anchor === 'middle') {
+          svg += escapeHtml(band.label);
+        } else {
+          svg += '<tspan x="' + lx.toFixed(1) + '" dy="0">' + escapeHtml(words[0]) + '</tspan>' +
+            '<tspan x="' + lx.toFixed(1) + '" dy="26">' + escapeHtml(words.slice(1).join(' ')) + '</tspan>';
+        }
+        svg += '</text>';
+      }
+    });
+
+    // Needle pointing at the active band
+    const activeIdx = GAUGE_BANDS.findIndex(function (b) { return b.key === activeKey; });
+    const needleAngle = 180 - (Math.max(activeIdx, 0) * 36 + 18);
+    const nRad = (Math.PI * needleAngle) / 180;
+    const tipX = cx + (rOut - 28) * Math.cos(nRad);
+    const tipY = cy - (rOut - 28) * Math.sin(nRad);
+    const b1x = cx + 10 * Math.cos(nRad + Math.PI / 2);
+    const b1y = cy - 10 * Math.sin(nRad + Math.PI / 2);
+    const b2x = cx + 10 * Math.cos(nRad - Math.PI / 2);
+    const b2y = cy - 10 * Math.sin(nRad - Math.PI / 2);
+    svg += '<path d="M ' + tipX.toFixed(1) + ' ' + tipY.toFixed(1) + ' L ' + b1x.toFixed(1) + ' ' + b1y.toFixed(1) +
+      ' L ' + b2x.toFixed(1) + ' ' + b2y.toFixed(1) + ' Z" fill="#ffffff"/>';
+    svg += '<circle cx="' + cx + '" cy="' + cy + '" r="24" fill="#ffffff"/>';
+    svg += '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="#000000"/>';
+    svg += '</svg>';
+    return svg;
+  }
+
+  // ------------------------------------------------------------
+  // Boot - load state, resume any draft
+  // ------------------------------------------------------------
+  function newUuid() {
+    return (crypto.randomUUID && crypto.randomUUID()) ||
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+  }
+
+  async function boot() {
+    try {
+      let stateUrl = API.state;
+      if (IS_PUBLIC) {
+        // Public form: the draft key lives in this browser
+        try { submissionUuid = localStorage.getItem('mfc_join_uuid') || null; } catch (e) { /* private mode */ }
+        if (submissionUuid) stateUrl += '?uuid=' + encodeURIComponent(submissionUuid);
+      }
+
+      const res = await fetch(stateUrl);
+      if (!res.ok) throw new Error('state ' + res.status);
+      const state = await res.json();
+      if (!state.ok) throw new Error(state.error);
+
+      questions = state.questions;
+      firstName = state.firstName;
+      welcomeCopy = state.welcome;
+      doneCopy = state.done || null;
+      submittedThisCycle = state.submittedThisCycle;
+      if (state.formTitle) document.title = state.formTitle + ' - MyFitCoach';
+
+      if (state.draft) {
+        Object.assign(answers, state.draft.answers || {});
+        submissionUuid = state.draft.submissionUuid;
+      }
+      if (!submissionUuid) submissionUuid = newUuid();
+      if (IS_PUBLIC) {
+        try { localStorage.setItem('mfc_join_uuid', submissionUuid); } catch (e) { /* private mode */ }
+      }
+
+      currentIndex = 0;
+      render();
+    } catch (e) {
+      document.getElementById('viewport').innerHTML =
+        '<div class="checkin__step checkin__step--active">' +
+        '<div class="checkin__end-title">Something went wrong loading your check-in</div>' +
+        '<div class="checkin__end-sub">Give it a second and refresh the page. If it keeps happening, message Connor directly.</div>' +
+        '<div class="checkin__actions"><button class="checkin__btn" onclick="window.location.reload()">Refresh</button></div>' +
+        '</div>';
+    }
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

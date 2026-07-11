@@ -16,6 +16,15 @@ const WEIGHT_BRACKETS = {
   stress:    [5, 5, 5, 5, 4, 3, 3, 2, 2, 2], // INVERTED
 };
 
+// The EOM report weights two categories differently (verified against
+// Typeform's own calculated scores - see connor-eom-report-reference.md):
+// training raw 5/7 score higher, stress raw 6 scores 4 instead of 3.
+const WEIGHT_BRACKETS_EOM = {
+  ...WEIGHT_BRACKETS,
+  training: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5],
+  stress:   [5, 5, 5, 5, 4, 4, 3, 2, 2, 2], // INVERTED
+};
+
 const DAYS_ON_PLAN_WEIGHTS = { '0-1 days': 1, '2-3 days': 2, '4-5 days': 4, '6-7 days': 5 };
 const PROGRESS_WEIGHTS = { 'Progressed': 5, 'Stayed the same': 3, 'Regressed': 1 };
 
@@ -78,14 +87,18 @@ const FIELD_REF_DIRECTION_CONFIDENCE = 'eom-direction-confidence';
 // includes the EOM-only keys so weekly check-ins report them as null (hidden).
 const ALL_TEXT_KEYS = [...new Set([...Object.values(FIELD_REF_TO_TEXT), 'directionConfidence'])];
 
-function toWeighted(category, rawValue) {
-  const bracket = WEIGHT_BRACKETS[category];
+function toWeighted(category, rawValue, brackets = WEIGHT_BRACKETS) {
+  const bracket = brackets[category];
   if (!bracket || rawValue < 1 || rawValue > 10) return null;
   return bracket[rawValue - 1];
 }
 
 function parseScores(formData) {
   if (!formData || !Array.isArray(formData)) return null;
+
+  // EOM submissions use eom-* refs and slightly different weight brackets
+  const isEom = formData.some((a) => a.field && a.field.ref && a.field.ref.startsWith('eom-'));
+  const brackets = isEom ? WEIGHT_BRACKETS_EOM : WEIGHT_BRACKETS;
 
   const raw = {};
   const weighted = {};
@@ -101,7 +114,7 @@ function parseScores(formData) {
     const cat = FIELD_REF_TO_SCORE[ref];
     if (cat && answer.number != null) {
       raw[cat] = answer.number;
-      weighted[cat] = toWeighted(cat, answer.number);
+      weighted[cat] = toWeighted(cat, answer.number, brackets);
     }
 
     // Choice questions - lookup by field ref (weekly or EOM)
@@ -176,6 +189,7 @@ function parseFormAnswers(formData) {
 
 module.exports = {
   WEIGHT_BRACKETS,
+  WEIGHT_BRACKETS_EOM,
   DAYS_ON_PLAN_WEIGHTS,
   PROGRESS_WEIGHTS,
   SCORE_CATEGORIES,
