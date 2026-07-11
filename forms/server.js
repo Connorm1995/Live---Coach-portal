@@ -18,7 +18,8 @@ const { router: onboardingRoutes } = require('./routes/onboarding');
 const adminRoutes = require('./routes/admin');
 
 const app = express();
-const PORT = process.env.FORMS_PORT || 3002;
+// Railway injects PORT; FORMS_PORT wins locally so it never clashes with the portal
+const PORT = process.env.FORMS_PORT || process.env.PORT || 3002;
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '200kb' }));
