@@ -477,7 +477,7 @@ async function buildCalendarDays(clientId, tid, monthRange) {
         const calories = Math.round(day.calories || 0);
         const calorieGoal = day.goal?.caloricGoal || 0;
         const insufficientTracking = calorieGoal > 0 && calories < calorieGoal * 0.65;
-        nutritionMap[day.date] = { calories, protein: Math.round(day.proteinGrams || 0), insufficientTracking };
+        nutritionMap[day.date] = { calories, protein: Math.round(day.proteinGrams || 0), fibre: Math.round(day.fiberGrams || 0), insufficientTracking };
       }
     }
   }
@@ -563,6 +563,7 @@ async function buildCalendarDays(clientId, tid, monthRange) {
     if (nutr && nutr.calories > 0) {
       dayResult.calories = nutr.calories;
       if (nutr.protein > 0) dayResult.protein = nutr.protein;
+      if (nutr.fibre > 0) dayResult.fibre = nutr.fibre;
       if (nutr.insufficientTracking) dayResult.insufficientTracking = true;
     }
     if (sleepMap[dayData.date] != null) dayResult.sleep = sleepMap[dayData.date];
@@ -579,7 +580,7 @@ async function buildCalendarDays(clientId, tid, monthRange) {
 // Helper: get client + trainerize_id (shared by all split endpoints)
 async function getClient(id) {
   const result = await pool.query(
-    `SELECT id, name, trainerize_id, current_phase FROM clients WHERE id = $1 AND coach_id = $2`,
+    `SELECT id, name, trainerize_id, current_phase, program FROM clients WHERE id = $1 AND coach_id = $2`,
     [id, COACH_ID]
   );
   return result.rows[0] || null;
@@ -593,15 +594,18 @@ router.get('/:id/summary', async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const tid = client.trainerize_id;
 
+    // Core clients check in via the End of Month report; everyone else weekly.
+    const checkinType = client.program === 'my_fit_coach_core' ? 'eom_report' : 'weekly';
+
     const prevWeek = getPreviousFullWeek();
     const currentMonday = getCurrentWeekMonday();
 
     const [trendResult, focusResult, settingsResult, trajectoryResult, calendarDataForTraining, nutritionData] = await Promise.all([
       pool.query(
         `SELECT id, form_data, cycle_start, submitted_at, responded, responded_at FROM checkins
-         WHERE client_id = $1 AND coach_id = $2 AND type = 'weekly' AND form_data IS NOT NULL
+         WHERE client_id = $1 AND coach_id = $2 AND type = $3 AND form_data IS NOT NULL
          ORDER BY submitted_at DESC LIMIT 8`,
-        [id, COACH_ID]
+        [id, COACH_ID, checkinType]
       ),
       pool.query(
         `SELECT week_start::text AS week_start, focus_text FROM weekly_focus

@@ -583,6 +583,12 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
               <span className="client-overview__overlay-stat-value">{dayData.protein}g</span>
             </div>
           )}
+          {dayData.fibre != null && dayData.fibre > 0 && (
+            <div className="client-overview__overlay-stat">
+              <span className="client-overview__overlay-stat-label">Fibre</span>
+              <span className="client-overview__overlay-stat-value">{dayData.fibre}g</span>
+            </div>
+          )}
           {dayData.sleep != null && (
             <div className="client-overview__overlay-stat">
               <span className="client-overview__overlay-stat-label">Sleep</span>
@@ -699,8 +705,9 @@ function CalendarPanel({ calendar, calendarMonth, calendarYear, setCalendarMonth
               {/* Nutrition */}
               {hasNutrition && (
                 <span className="cal-panel__stat cal-panel__stat--nutrition">
-                  {dayData.calories.toLocaleString()} kcal
-                  {dayData.protein > 0 && <span className="cal-panel__protein"> {dayData.protein}g P</span>}
+                  <span className="cal-panel__kcal">{dayData.calories.toLocaleString()}{' '}kcal</span>
+                  {dayData.protein > 0 && <span className="cal-panel__protein">{dayData.protein}g{' '}P</span>}
+                  {dayData.fibre > 0 && <span className="cal-panel__fibre">{dayData.fibre}g{' '}F</span>}
                 </span>
               )}
               {/* Sleep */}

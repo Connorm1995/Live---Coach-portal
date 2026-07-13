@@ -346,6 +346,18 @@ The gauge shows one threshold at 10% of total daily calories, which is the WHO (
 
 ---
 
+### Fibre on the Overview Calendar Pill
+
+**What it does:** Each day's red nutrition pill on the Overview calendar shows calories, protein (`Ng P`), and fibre (`Ng F`) side by side, so Connor can read a day's fibre without clicking into the day overlay. The overlay also lists a Fibre row. Fibre only renders when it is greater than 0.
+
+**Why:** Fibre is a metric Connor reviews with clients (it has its own per-client target - see the Fibre Target section), and most clients under-eat it. Surfacing it on the pill removes a click during Loom reviews.
+
+**How the pill fits both macros:** The nutrition pill (`.cal-panel__stat--nutrition`) is a `flex-wrap` container. Calories, protein, and fibre are separate segments, each kept intact on one line (`white-space: nowrap`), that wrap onto a second line inside the pill rather than truncating. This keeps the month grid uniform while showing the full values.
+
+**Data source caveat:** The calendar reads nutrition via `store.getNutritionData` (Trainerize `/dailyNutrition/getList`). Fibre is served from the `client_nutrition.fibre` DB column, which is populated by the per-day `/dailyNutrition/get` detail sync (used by the Nutrition tab) - the `getList` payload itself does not reliably include fibre. In practice the daily reconciliation and Nutrition tab views keep `fibre` populated, so the calendar shows the same fibre value as the Nutrition tab. On a fully cold cache a live `getList` fetch may briefly show a day without fibre until detail data is synced.
+
+---
+
 ## Coach's Corner - Direct Messages
 
 ### How DM Threads Work

@@ -643,13 +643,30 @@
 
 .cal-panel__stat--nutrition {
   background: var(--color-cal-nutrition);
+  /* Let calories/protein/fibre wrap onto a second line instead of truncating,
+     while keeping each value (e.g. "170g P") intact on one line. */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0 6px;
+  white-space: normal;
+}
+
+.cal-panel__stat--nutrition > span {
+  white-space: nowrap;
 }
 
 .cal-panel__stat--sleep {
   background: var(--color-cal-sleep);
 }
 
-.cal-panel__protein {
+.cal-panel__protein,
+.cal-panel__fibre {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.cal-panel__fibre {
   color: rgba(255, 255, 255, 0.85);
 }
 
