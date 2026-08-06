@@ -62,6 +62,25 @@ app.use(express.json());
 // the login routes themselves. This gate is deliberately mounted before every
 // route so a new endpoint is private by default rather than public by default.
 
+// Crawler directives must sit ABOVE the auth gate.
+//
+// Both of these were originally mounted below it, which defeated them: the gate
+// redirected /robots.txt to the login page, so a crawler asking permission got
+// HTML instead of an answer, and the header never reached the redirect response
+// at all. A robots.txt a crawler cannot read is not a robots.txt.
+app.use((req, res, next) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, noimageindex');
+  next();
+});
+
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(
+    '# The coach portal holds client personal data and is password protected.\n' +
+    '# Nothing here should be crawled, indexed, or archived by anyone.\n' +
+    'User-agent: *\nDisallow: /\n'
+  );
+});
+
 app.get('/login', (req, res) => {
   if (auth.isAuthed(req)) return res.redirect('/');
   res.status(req.query.failed === '1' ? 401 : 200)
@@ -97,12 +116,6 @@ app.use((req, res, next) => {
     return res.status(401).json({ ok: false, error: 'not_authenticated' });
   }
   return res.redirect('/login');
-});
-
-// Keep the whole portal out of search engines and automated crawlers.
-app.use((req, res, next) => {
-  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, noimageindex');
-  next();
 });
 
 app.use('/api/checkins', checkinRoutes);

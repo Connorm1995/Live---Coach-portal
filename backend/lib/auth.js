@@ -91,6 +91,7 @@ function isPublicPath(pathname) {
   return pathname === '/health'
     || pathname === '/login'
     || pathname === '/logout'
+    || pathname === '/robots.txt'
     || pathname.startsWith('/webhooks/');
 }
 
