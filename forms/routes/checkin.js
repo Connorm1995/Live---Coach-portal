@@ -1,18 +1,27 @@
 /**
  * Client-facing forms: page + API for the weekly check-in and the EOM report.
  *
- *   GET  /checkin/<token>  |  /monthly/<token>          form page
- *   GET  /api/<form>/<token>/state                      questions, draft, name
- *   POST /api/<form>/<token>/draft                      autosave
- *   POST /api/<form>/<token>/submit                     final submit
+ *   GET  /checkin  |  /monthly                 form page (one shared link)
+ *   GET  /api/<form>/state                     questions, draft, cycle
+ *   POST /api/<form>/draft                     autosave
+ *   POST /api/<form>/submit                    final submit
+ *
+ * Identity model:
+ *   There is one public link per form, shared by every client - the same model
+ *   Typeform used. The client identifies themselves by typing their name at
+ *   question 1, which is matched against the active client list on submit.
  *
  * Reliability model:
- *  - Every answer is saved to form_drafts the moment it is given (autosave).
- *  - Submit validates, writes to the shared checkins table, and only then
- *    tells the client it succeeded.
- *  - The client generates a submission UUID on first load; the checkins
- *    unique index on typeform_response_id ('mfc_<uuid>') makes submit retries
- *    idempotent - a double-tap or network retry can never create duplicates.
+ *  - Every answer is saved to form_drafts the moment it is given (autosave),
+ *    keyed on a UUID the browser generates, since we do not know who they are.
+ *  - Submit validates, resolves the name, and writes to the shared checkins
+ *    table, then tells the client it succeeded.
+ *  - A name that matches nothing is NOT an error and is never discarded. The
+ *    submission goes to unmatched_submissions with its answers intact and the
+ *    coach assigns it from the admin area. The client sees the normal success
+ *    screen either way - a typo in their name is not their problem to solve.
+ *  - The checkins unique index on typeform_response_id ('mfc_<uuid>') makes
+ *    submit retries idempotent, so a double-tap can never create duplicates.
  */
 
 const path = require('path');
@@ -20,69 +29,74 @@ const express = require('express');
 const pool = require('../db/pool');
 const { buildFormData, validateAnswers, computeScore } = require('../lib/form-data');
 const { FORM_TYPES } = require('../lib/form-types');
+const { resolveClient } = require('../lib/match');
 
 const router = express.Router();
 
+const COACH_ID = 1;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function lookupToken(token) {
+/** Active clients for this coach, for name matching. */
+async function activeClients() {
   const result = await pool.query(
-    `SELECT fl.coach_id, fl.client_id, c.name
-     FROM form_links fl
-     JOIN clients c ON c.id = fl.client_id
-     WHERE fl.token = $1 AND fl.active = true AND c.active = true`,
-    [token]
+    `SELECT id, name FROM clients WHERE coach_id = $1 AND active = true`,
+    [COACH_ID]
   );
-  return result.rows[0] || null;
+  return result.rows;
 }
 
-// Pages - served for valid tokens; friendly error page otherwise
-router.get('/:form(checkin|monthly)/:token', async (req, res) => {
-  try {
-    const link = await lookupToken(req.params.token);
-    if (!link) {
-      return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'link-invalid.html'));
-    }
-    return res.sendFile(path.join(__dirname, '..', 'public', 'checkin.html'));
-  } catch (err) {
-    console.error('[form page] Error:', err.message);
-    return res.status(500).sendFile(path.join(__dirname, '..', 'public', 'link-invalid.html'));
-  }
+// Pages - one shared link per form, no token
+router.get('/:form(checkin|monthly)', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'checkin.html'));
 });
 
-// State - client name, questions, welcome copy, current cycle, any saved draft
-router.get('/api/:form(checkin|monthly)/:token/state', async (req, res) => {
+// State - questions, welcome copy, current cycle, any saved draft.
+// `name` is the name this browser remembered from last time; when it resolves
+// to a client we can tell them whether they have already submitted this cycle.
+router.get('/api/:form(checkin|monthly)/state', async (req, res) => {
   try {
     const form = FORM_TYPES[req.params.form];
-    const link = await lookupToken(req.params.token);
-    if (!link) return res.status(404).json({ ok: false, error: 'invalid_link' });
-
     const cycleStart = form.cycleStart();
+    const uuid = String(req.query.uuid || '');
+    const rememberedName = String(req.query.name || '').trim();
 
-    const draft = await pool.query(
-      `SELECT answers, submission_uuid FROM form_drafts
-       WHERE client_id = $1 AND form_type = $2 AND cycle_start = $3`,
-      [link.client_id, form.dbType, cycleStart]
-    );
+    let draft = null;
+    if (UUID_RE.test(uuid)) {
+      const d = await pool.query(
+        `SELECT answers, submission_uuid FROM form_drafts
+         WHERE submission_uuid = $1 AND form_type = $2 AND cycle_start = $3`,
+        [uuid.toLowerCase(), form.dbType, cycleStart]
+      );
+      if (d.rows[0]) {
+        draft = { answers: d.rows[0].answers, submissionUuid: d.rows[0].submission_uuid };
+      }
+    }
 
-    const submitted = await pool.query(
-      `SELECT 1 FROM checkins
-       WHERE client_id = $1 AND type = $2 AND cycle_start = $3
-       LIMIT 1`,
-      [link.client_id, form.dbType, cycleStart]
-    );
+    let firstName = '';
+    let submittedThisCycle = false;
+    if (rememberedName) {
+      const { client, matched } = resolveClient(rememberedName, await activeClients());
+      if (matched) {
+        firstName = client.name.trim().split(/\s+/)[0];
+        const submitted = await pool.query(
+          `SELECT 1 FROM checkins
+           WHERE client_id = $1 AND type = $2 AND cycle_start = $3 LIMIT 1`,
+          [client.id, form.dbType, cycleStart]
+        );
+        submittedThisCycle = submitted.rows.length > 0;
+      }
+    }
 
     return res.json({
       ok: true,
-      firstName: link.name.trim().split(/\s+/)[0],
+      firstName,
+      rememberedName,
       formTitle: form.title,
       welcome: form.welcome,
       questions: form.def.QUESTIONS,
       cycleStart,
-      draft: draft.rows[0]
-        ? { answers: draft.rows[0].answers, submissionUuid: draft.rows[0].submission_uuid }
-        : null,
-      submittedThisCycle: submitted.rows.length > 0,
+      draft,
+      submittedThisCycle,
     });
   } catch (err) {
     console.error('[form state] Error:', err.message);
@@ -91,12 +105,9 @@ router.get('/api/:form(checkin|monthly)/:token/state', async (req, res) => {
 });
 
 // Autosave draft - called after every answer
-router.post('/api/:form(checkin|monthly)/:token/draft', async (req, res) => {
+router.post('/api/:form(checkin|monthly)/draft', async (req, res) => {
   try {
     const form = FORM_TYPES[req.params.form];
-    const link = await lookupToken(req.params.token);
-    if (!link) return res.status(404).json({ ok: false, error: 'invalid_link' });
-
     const { answers, submissionUuid } = req.body || {};
     if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
       return res.status(400).json({ ok: false, error: 'bad_answers' });
@@ -109,10 +120,11 @@ router.post('/api/:form(checkin|monthly)/:token/draft', async (req, res) => {
 
     await pool.query(
       `INSERT INTO form_drafts (coach_id, client_id, form_type, cycle_start, submission_uuid, answers, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, now())
-       ON CONFLICT (client_id, form_type, cycle_start)
-       DO UPDATE SET answers = EXCLUDED.answers, submission_uuid = EXCLUDED.submission_uuid, updated_at = now()`,
-      [link.coach_id, link.client_id, form.dbType, cycleStart, submissionUuid, JSON.stringify(answers)]
+       VALUES ($1, NULL, $2, $3, $4, $5, now())
+       ON CONFLICT (submission_uuid)
+       DO UPDATE SET answers = EXCLUDED.answers, form_type = EXCLUDED.form_type,
+                     cycle_start = EXCLUDED.cycle_start, updated_at = now()`,
+      [COACH_ID, form.dbType, cycleStart, submissionUuid.toLowerCase(), JSON.stringify(answers)]
     );
 
     return res.json({ ok: true });
@@ -123,12 +135,9 @@ router.post('/api/:form(checkin|monthly)/:token/draft', async (req, res) => {
 });
 
 // Final submit - idempotent on submissionUuid
-router.post('/api/:form(checkin|monthly)/:token/submit', async (req, res) => {
+router.post('/api/:form(checkin|monthly)/submit', async (req, res) => {
   try {
     const form = FORM_TYPES[req.params.form];
-    const link = await lookupToken(req.params.token);
-    if (!link) return res.status(404).json({ ok: false, error: 'invalid_link' });
-
     const { answers, submissionUuid } = req.body || {};
     if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
       return res.status(400).json({ ok: false, error: 'bad_answers' });
@@ -144,25 +153,47 @@ router.post('/api/:form(checkin|monthly)/:token/submit', async (req, res) => {
 
     const cycleStart = form.cycleStart();
     const formData = buildFormData(form.def, answers);
-    const responseId = `mfc_${submissionUuid.toLowerCase()}`;
+    const uuid = submissionUuid.toLowerCase();
+    const responseId = `mfc_${uuid}`;
+    const submittedName = String(answers.client_name || '').trim();
 
-    await pool.query(
-      `INSERT INTO checkins (coach_id, client_id, type, typeform_response_id, submitted_at, responded, cycle_start, form_data)
-       VALUES ($1, $2, $3, $4, now(), false, $5, $6)
-       ON CONFLICT (typeform_response_id) DO NOTHING`,
-      [link.coach_id, link.client_id, form.dbType, responseId, cycleStart, JSON.stringify(formData)]
-    );
-    // Conflict = this exact submission already landed (client retry) - success either way.
+    const { client, bestMatch, matched, score } = resolveClient(submittedName, await activeClients());
 
-    await pool.query(
-      `DELETE FROM form_drafts
-       WHERE client_id = $1 AND form_type = $2 AND cycle_start = $3`,
-      [link.client_id, form.dbType, cycleStart]
-    );
+    if (matched) {
+      await pool.query(
+        `INSERT INTO checkins (coach_id, client_id, type, typeform_response_id, submitted_at, responded, cycle_start, form_data)
+         VALUES ($1, $2, $3, $4, now(), false, $5, $6)
+         ON CONFLICT (typeform_response_id) DO NOTHING`,
+        [COACH_ID, client.id, form.dbType, responseId, cycleStart, JSON.stringify(formData)]
+      );
+      console.log(
+        `[form submit] "${submittedName}" -> "${client.name}" (${(score * 100).toFixed(1)}%) ` +
+        `${form.dbType} stored (cycle ${cycleStart}, ${responseId})`
+      );
+    } else {
+      // Nothing matched well enough. Store it whole so the coach can assign it.
+      await pool.query(
+        `INSERT INTO unmatched_submissions
+           (coach_id, form_type, cycle_start, submission_uuid, submitted_name,
+            best_match_client_id, best_match_score, answers, form_data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (submission_uuid) DO NOTHING`,
+        [
+          COACH_ID, form.dbType, cycleStart, uuid, submittedName,
+          bestMatch ? bestMatch.id : null, score ? score.toFixed(3) : null,
+          JSON.stringify(answers), JSON.stringify(formData),
+        ]
+      );
+      console.warn(
+        `[form submit] UNMATCHED "${submittedName}" (best ${(score * 100).toFixed(1)}%` +
+        `${bestMatch ? ', ' + bestMatch.name : ''}) - held for assignment (${form.dbType}, cycle ${cycleStart})`
+      );
+    }
 
-    console.log(`[form submit] "${link.name}" ${form.dbType} stored (cycle ${cycleStart}, ${responseId})`);
+    await pool.query(`DELETE FROM form_drafts WHERE submission_uuid = $1`, [uuid]);
 
-    // Score-based end screen (server-authoritative, same on retries)
+    // Score-based end screen (server-authoritative, same on retries).
+    // Shown whether or not the name matched - that is the coach's problem.
     const { total } = computeScore(form.def, answers);
     const screen = total != null ? form.def.END_SCREENS.find((s) => total >= s.min) : null;
     return res.json({

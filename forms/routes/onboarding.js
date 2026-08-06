@@ -9,8 +9,8 @@
  *      else, so no answer set is ever lost.
  *   2. Create the client in Trainerize (/user/add, sendMail: true - Trainerize
  *      emails them their sign-in invite).
- *   3. Create the portal client row and mint their personal form link so
- *      check-in links exist from day one.
+ *   3. Create the portal client row. No per-client link is needed - the weekly
+ *      and monthly forms are one shared URL each, resolved by name.
  *   4. Mark the submission synced. Any failure after step 1 marks it
  *      sync_failed with the error; the admin area has a Retry button.
  *
@@ -23,7 +23,6 @@ const express = require('express');
 const pool = require('../db/pool');
 const def = require('../lib/onboarding-definition');
 const { createClient } = require('../lib/trainerize');
-const { mintToken } = require('../lib/tokens');
 
 const router = express.Router();
 
@@ -111,13 +110,9 @@ async function syncSubmission(answers) {
       clientId = ins.rows[0].id;
     }
 
-    // Personal form link so their weekly/monthly check-in URLs exist from day one
-    await pool.query(
-      `INSERT INTO form_links (coach_id, client_id, token)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (coach_id, client_id) DO NOTHING`,
-      [COACH_ID, clientId, mintToken()]
-    );
+    // No per-client link is minted: the weekly and monthly forms are one
+    // shared URL each, and the client identifies themselves by name at Q1.
+    // form_links is left in place unused in case per-client links ever return.
 
     return {
       status: 'synced',

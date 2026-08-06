@@ -1,8 +1,13 @@
 /**
  * Registry of client-facing forms. URL path segment -> form config.
  *
- *   /checkin/<token>  weekly check-in  (checkins.type = 'weekly',    cycle = most recent Sunday)
- *   /monthly/<token>  EOM report       (checkins.type = 'eom_report', cycle = 1st of month)
+ *   /checkin  weekly check-in  (checkins.type = 'weekly',     cycle = most recent Sunday)
+ *   /monthly  EOM report       (checkins.type = 'eom_report', cycle = 1st of month)
+ *
+ * Both are one shared public link. The client names themselves at question 1,
+ * so on first visit we do not know who they are and the welcome screen uses
+ * `titleAnonymous`. Once a browser has submitted once it remembers the name,
+ * and returning visits get the personalised `title` instead.
  */
 
 const weeklyDef = require('./checkin-definition');
@@ -17,9 +22,10 @@ const FORM_TYPES = {
     title: 'Weekly Check-In',
     welcome: {
       title: ', ready to check in?',
+      titleAnonymous: 'Ready to check in?',
       paragraphs: [
-        '<strong>Bad week?</strong> Tell me why, not just that you didn\'t do it. "Work blew up Tue-Thu so I skipped training" I can coach. "I knew what to do and didn\'t" I can\'t.',
-        '<strong>Great week?</strong> Say so! No need to invent problems when things are going really well - "bang on, nothing to flag" is a great answer.',
+        '<strong>A bit of context goes a long way.</strong> A score tells me what happened, the detail tells us both what to do next. So if something got in the way this week, throw it in. Work, travel, sleep, whatever it was.',
+        '<strong>Great week?</strong> Say so! It\'s always good to highlight the wins, so we can double down on what\'s working.',
         'Answers save as you go, so a browser crash won\'t lose anything.',
       ],
       cta: 'Start check-in',
@@ -34,9 +40,10 @@ const FORM_TYPES = {
     title: 'End of Month Report',
     welcome: {
       title: ', time for your end of month report.',
+      titleAnonymous: 'Time for your end of month report.',
       paragraphs: [
         'This is the big picture one: how the month actually went, what got in the way, and where we point things next.',
-        'Same rules as always - honest answers beat impressive ones, and "bang on, nothing to flag" is a great answer when it\'s true.',
+        'Same as always - the more context you give, the more useful your game plan is. And it\'s always worth highlighting the wins, so we can double down on what\'s working.',
         'Answers save as you go, so a browser crash won\'t lose anything.',
       ],
       cta: 'Start report',

@@ -80,6 +80,7 @@
   .checkin__hint {
     font-size: 15px; color: var(--color-slate);
     margin-bottom: 32px; line-height: 1.5;
+    white-space: pre-line; /* hints may carry deliberate line breaks */
   }
   .checkin__scale {
     display: grid; grid-template-columns: repeat(10, 1fr);
@@ -292,18 +293,33 @@
 (function () {
   'use strict';
 
-  // URL shapes: /checkin/<token>, /monthly/<token> (personal links) or
-  // /join (public onboarding - draft keyed by a UUID held in localStorage)
+  // URL shapes: /checkin, /monthly, /join - all one shared link per form.
+  // Every draft is keyed by a UUID this browser holds in localStorage, since
+  // the client is not identified until they type their name at question 1.
   const pathParts = window.location.pathname.split('/').filter(Boolean);
   const FORM = pathParts[0];
-  const TOKEN = pathParts[1] || null;
-  const IS_PUBLIC = FORM === 'join';
-  const base = IS_PUBLIC ? '/api/join' : '/api/' + FORM + '/' + TOKEN;
+  const IS_JOIN = FORM === 'join';
+  const base = '/api/' + FORM;
   const API = {
     state: base + '/state',
     draft: base + '/draft',
     submit: base + '/submit',
   };
+
+  // Draft key is per form; the remembered name is shared, because the weekly
+  // and monthly forms are filled in by the same person on the same device.
+  const UUID_KEY = IS_JOIN ? 'mfc_join_uuid' : 'mfc_uuid_' + FORM;
+  const NAME_KEY = 'mfc_client_name';
+
+  function readStore(key) {
+    try { return localStorage.getItem(key) || null; } catch (e) { return null; }
+  }
+  function writeStore(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+  }
+  function clearStore(key) {
+    try { localStorage.removeItem(key); } catch (e) { /* private mode */ }
+  }
 
   let questions = [];
   let firstName = '';
@@ -430,9 +446,14 @@
       const note = submittedThisCycle
         ? '<div class="checkin__note">' + escapeHtml(welcomeCopy.alreadySubmitted) + '</div>'
         : '';
+      // On a first visit nobody has named themselves yet, so the greeting is
+      // anonymous; once this browser remembers a name it goes back to "Hi X".
+      const welcomeTitle = firstName
+        ? 'Hi ' + escapeHtml(firstName) + escapeHtml(welcomeCopy.title)
+        : escapeHtml(welcomeCopy.titleAnonymous || welcomeCopy.title);
       // Welcome paragraphs come from the server config and may contain
       // <strong> markup - trusted content, not client input.
-      return '<div class="checkin__welcome-title">Hi ' + escapeHtml(firstName) + escapeHtml(welcomeCopy.title) + '</div>' +
+      return '<div class="checkin__welcome-title">' + welcomeTitle + '</div>' +
         '<div class="checkin__welcome-body">' +
         welcomeCopy.paragraphs.map(function (p) { return '<p>' + p + '</p>'; }).join('') +
         '</div>' +
@@ -458,7 +479,9 @@
           return '<div class="checkin__end-title">' + escapeHtml(doneCopy.title) + '</div>' +
             '<div class="checkin__end-sub">' + escapeHtml(doneCopy.sub) + '</div>';
         }
-        return '<div class="checkin__end-title">Thanks, ' + escapeHtml(firstName) + '. Check-in received.</div>' +
+        // By this point they have named themselves, so prefer what they typed.
+        const typedFirst = String(answers.client_name || '').trim().split(/\s+/)[0];
+        return '<div class="checkin__end-title">Thanks, ' + escapeHtml(typedFirst || firstName) + '. Check-in received.</div>' +
           '<div class="checkin__end-sub">I will review this and come back to you with your feedback. Keep the head down this week.</div>';
       }
       const es = step.endScreen;
@@ -719,9 +742,13 @@
     el.classList.add('checkin__step--active');
     finished = true;
     document.querySelector('.checkin__nav').style.display = 'none';
-    if (IS_PUBLIC) {
-      // Fresh UUID for the next person who onboards on this device
-      try { localStorage.removeItem('mfc_join_uuid'); } catch (e) { /* private mode */ }
+    // Fresh UUID so the next cycle (or the next person onboarding on this
+    // device) starts a clean draft rather than resuming this one.
+    clearStore(UUID_KEY);
+    // Remember the name so next week's check-in comes prefilled.
+    if (!IS_JOIN) {
+      const submittedName = String(answers.client_name || '').trim();
+      if (submittedName) writeStore(NAME_KEY, submittedName);
     }
   }
 
@@ -924,12 +951,15 @@
 
   async function boot() {
     try {
-      let stateUrl = API.state;
-      if (IS_PUBLIC) {
-        // Public form: the draft key lives in this browser
-        try { submissionUuid = localStorage.getItem('mfc_join_uuid') || null; } catch (e) { /* private mode */ }
-        if (submissionUuid) stateUrl += '?uuid=' + encodeURIComponent(submissionUuid);
-      }
+      // The draft key lives in this browser for every form now.
+      submissionUuid = readStore(UUID_KEY);
+      const params = [];
+      if (submissionUuid) params.push('uuid=' + encodeURIComponent(submissionUuid));
+      // Send the name this browser remembered so the server can greet them and
+      // tell them if they have already submitted this cycle. Not used by /join.
+      const remembered = IS_JOIN ? null : readStore(NAME_KEY);
+      if (remembered) params.push('name=' + encodeURIComponent(remembered));
+      const stateUrl = API.state + (params.length ? '?' + params.join('&') : '');
 
       const res = await fetch(stateUrl);
       if (!res.ok) throw new Error('state ' + res.status);
@@ -948,8 +978,14 @@
         submissionUuid = state.draft.submissionUuid;
       }
       if (!submissionUuid) submissionUuid = newUuid();
-      if (IS_PUBLIC) {
-        try { localStorage.setItem('mfc_join_uuid', submissionUuid); } catch (e) { /* private mode */ }
+      writeStore(UUID_KEY, submissionUuid);
+
+      // Prefill the name question from what this browser remembers, so a
+      // returning client just presses Enter. Deliberately prefilled and not
+      // skipped: a shared device would otherwise silently file someone's
+      // check-in under the wrong person.
+      if (!IS_JOIN && !answers.client_name && state.rememberedName) {
+        answers.client_name = state.rememberedName;
       }
 
       currentIndex = 0;

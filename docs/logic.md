@@ -2,7 +2,7 @@
 
 This document explains the reasoning behind every logic decision in the portal. Written so a non-technical person can read it and understand exactly why the portal behaves the way it does.
 
-Last updated: June 2026
+Last updated: July 2026
 
 ---
 
@@ -820,3 +820,245 @@ Added July 2026. Standalone Express service in `forms/`, replacing the Typeform 
 - Auto-sync on submit is deliberate (Connor's call): the link is only given to real new clients; a stray submission is deleted manually.
 - forms/lib/trainerize.js is the only file in the forms service that knows Trainerize exists - swap this connector if the coaching platform ever changes.
 - Verified end to end against the live Trainerize API with a test client (created, synced, then deleted via /user/delete). Trainerize duplicate email returns a 406 which surfaces as a retryable sync failure.
+
+### Program PDF export (July 2026)
+
+**What it does:** `tools/program-pdf/generate.sh "<client>" "<phase>"` turns any client's Trainerize training block into a print-ready A4 PDF. Each exercise name is a live link to its demo video, and each card carries the reps and sets the client last logged plus the number to beat. See `tools/program-pdf/README.md` for usage.
+
+**What counts as "previous":** For every exercise in the block, the tool walks the client's *entire* logged history oldest-first, not just the preceding block. It keeps three things: the most recent session in which that exercise was actually logged, the heaviest set ever recorded (ties broken on reps), and the top-set weight per session for the sparkline.
+
+**Why the whole history rather than the last block:** Blocks change. When Bill Blake moved from Phase 3 to Phase 4, seven of his eleven working exercises were new to the block - restricting history to the previous phase would have left most cards blank. Walking the full history means a movement that carried over from two blocks ago keeps its numbers, and a genuinely new movement is the only thing that shows as new. Every card labels the phase and date its figures came from, so an older number is never passed off as recent.
+
+**Warm up versus working sets:** An exercise is only moved into the warm-up panel on an explicit signal: its record type is `general`, its coach note says "no need to track", or its name contains "warm up" or "stretch". Everything else gets a full working card.
+
+The first attempt keyed this on rest time (rest of 0 means warm up), which held for Phases 3 and 4 but was wrong. Phase 2 leaves rest blank on main lifts - barbell box squat, Romanian barbell deadlift and the bulgarian split squat all have a rest time of 0 - so that rule buried three working lifts in the warm-up strip and stripped their previous numbers off the page. Phase 3's front foot elevated split squat was hit by the same bug. The rule is now deliberately cautious in the safe direction: mistakenly giving a mobility drill a numbered card costs nothing, whereas hiding a main lift loses real information.
+
+**The both-sides flag:** When a prescription says "each side" and the logged reps are at least double the top of the prescribed range, the card notes that the numbers look like both sides added together. The threshold is deliberately strict (double the *top* of the range) so it stays silent unless the mismatch is unambiguous. This catches the common logging error the coach's own programming notes warn about - logging 24 for a 12-per-side set - without second-guessing legitimate entries.
+
+**Why Chrome prints the PDF:** Chrome headless is the only renderer available on the machine that preserves `<a href>` as real PDF link annotations, which is the whole point of the exercise links. `weasyprint` and `wkhtmltopdf` are not installed. The script probes the usual Chrome, Chromium and Brave install paths and fails loudly if none is found.
+
+**Fonts are embedded, not fetched:** The DM Sans latin subset is base64-embedded in the generated HTML from `tools/program-pdf/assets/`. The document makes zero external requests, so it renders identically regardless of machine or network.
+
+**Timed holds:** Planks, wall sits and side planks are prescribed in seconds, but Trainerize stores those seconds in the reps field, so they were being displayed as "82 reps" for what was an 82 second plank. When the prescription text mentions seconds or minutes, the logged numbers are labelled as time instead. The per-side flag is also suppressed for these, since a 45 second hold against a "20-30 seconds each side" prescription is not a logging error.
+
+**Pagination:** Exercise cards are packed onto pages by estimated height (a base card, plus the tag row, wrapped cue lines, sparkline and any flag), then a rebalancing pass moves a card forward when that evens out the page fills. This replaces per-workout hardcoded page splits so sessions of any length lay out correctly. The block tracker's notes area is sized the same way, taking whatever space the exercise grid leaves - a 15-exercise block like Phase 2 would otherwise push the closing note off the sheet.
+
+The constants are in millimetres, measured against rendered output, and are the fragile part of this tool. Pages are fixed height with `overflow: hidden`, so an underestimate clips content rather than reflowing it. The build asserts the printed sheet count matches the layout's page count, but that only catches a page growing past its bounds, not content clipped inside one. Eyeball the first output for a new client before sending it, and re-measure the constants if the card design changes.
+
+---
+
+## Trainerize Auto Messages (July 2026)
+
+### What they are, and how they differ from everything else that sends a message
+
+**What it does:** An Auto Message is a message that sits on a date in the client's Trainerize calendar and fires at a set time. It is a Trainerize object, visible in the Trainerize app, and it sends whether or not the portal is running.
+
+This is a third, separate mechanism. Do not confuse the three:
+
+- **Scheduled DMs** (`scheduled_messages` table) - the portal holds these and the portal's own scheduler sends them via `/message/reply`. If the portal is down at send time, they wait.
+- **Scheduled group posts** (`scheduled_posts` table) - same pattern, posted to a group thread.
+- **Auto Messages** (this section) - live entirely inside Trainerize. The portal creates them and then has no further involvement. Nothing is stored on our side except a run log.
+
+---
+
+### The naming trap - `autoMessage` is not the auto message
+
+**The single most important fact in this section:** the feature called "Auto messages" in the Trainerize calendar is served by the `dailyMessage/*` endpoints, **not** `autoMessage/*`.
+
+`autoMessage/*` does exist on the public API, but it is a completely different feature: the business-level auto-responders under Settings (welcome message, birthday message, vacation responder). Its methods are `getList`, `get` and `set`, keyed on `groupID`/`type`/`isActive`, plus `automessage/send`. All of them return **403 "No privilege to access auto message"** on our API token, and that privilege is not something we can grant ourselves.
+
+Earlier attempts to build this failed on exactly that 403. The conclusion drawn at the time - that auto messages are not reachable via the API - was wrong. It was the right error message on the wrong endpoint.
+
+**How the mapping was confirmed:** Trainerize's web app bundles are served unauthenticated from `myfitcoach3.trainerize.com`. In `gt.modules.<version>.min.js` the calendar's "Auto messages" button resolves to `ActivityType.autoMessages`, which dispatches to `DailyMessageService`, whose `add$` posts to `dailyMessage/add`. The dialog that builds the payload is `/widgets/gt.dialog.dailyMessage/js/widget.min.js`. If the payload shape ever changes, re-read those two files rather than guessing.
+
+---
+
+### The endpoints and the exact payload
+
+None of this is in the official API documentation. It was recovered from the web app source and then verified against the live API.
+
+```
+POST /v03/dailyMessage/add      -> { id }
+POST /v03/dailyMessage/get      { id, userID }
+POST /v03/dailyMessage/set      full object plus id
+POST /v03/dailyMessage/delete   { id, userID }
+```
+
+Create payload:
+
+```json
+{
+  "userID": 5346208,
+  "date": "2026-08-29",
+  "sendTime": 720,
+  "title": "EOM Report TESTER",
+  "detail": { "messages": [ {
+      "body": "the message text",
+      "type": "text",
+      "messageID": null,
+      "source": "user",
+      "sender": { "userID": 5343380, "firstName": "Connor", "lastName": "Meyler" },
+      "linkInfo": null, "workoutInfo": null, "attachment": null,
+      "productInfo": null, "appointmentInfo": null, "externalAppointmentInfo": null
+  } ] }
+}
+```
+
+For a master program rather than a client calendar, swap `date` for `day` (day number) and `programID`. Program calendars also have their own `program/addCalendarMessage` and `program/deleteCalendarItem`.
+
+**Field notes, all verified by test:**
+
+- `title` is **required**. Omitting it returns a 500 "Failed to add daily message". It is coach-only and never shown to the client - it is the label you see on the calendar.
+- `sendTime` is **minutes from midnight**, so 720 is 12:00 and 540 is 09:00.
+- The app's dropdown only offers 5:00am to 9:00pm in 30 minute steps (300 to 1260), but the API accepts any minute value. 547 and 60 both stored and read back correctly. Staying inside the dropdown range is safer if the message should also be editable in the app.
+- The API accepts more than three messages in `detail.messages`, but the app's dialog caps at three and only renders three. Do not exceed three.
+- `{firstName}` and `{lastName}` tokens are stored verbatim and resolved by Trainerize at send time.
+- A minimal message of just `{ body, type }` is accepted; the null fields above are what the app sends and are kept for fidelity.
+- Past dates are accepted without complaint. There is no server-side guard against scheduling into the past.
+
+---
+
+### Timezone - why this one is not Dublin
+
+**Every other scheduled thing in the portal is stored UTC and displayed in Europe/Dublin.** Auto Messages are the exception and must not be converted.
+
+`sendTime` is a wall-clock time resolved against **the client's own Trainerize timezone**, not ours and not UTC. Setting 720 means each client gets it at their local noon. A client in Dublin and a client in New York both receive it at 12:00 their time, five hours apart in real terms.
+
+So: do not apply the Dublin-to-UTC conversion used by `scheduled_messages` when writing `sendTime`. Write the intended local hour directly. If a send time ever needs to be shown in the portal UI, label it as client-local, not "(Dublin time)".
+
+---
+
+### The hard limitation - existing auto messages cannot be listed
+
+**There is no way to enumerate auto messages through the API.** This is the one real gap, and it is worth recording precisely so nobody spends another afternoon on it.
+
+Four independent routes were tried and all are closed:
+
+1. **No list endpoint exists.** All 681 endpoint strings were extracted from the web app bundles. There is no `dailyMessage/getList`, and nothing else lists them either.
+2. **`calendar/getList` silently omits them.** The API docs claim `dailyMessage` is a possible `calendar[].items[].type`, but it is never returned. Proven by creating an auto message on a date that already had one item and confirming the item count stayed at 1. Tried with camelCase `userID`, the web app's lowercase `userid`, and the `filter.userPrograms` variants the web app sends.
+3. **`dailyMessage/get` is id-only.** Lookup by `date`, by `startDate`/`endDate`, and with `id: 0` all return 404 "Can't find daily message".
+4. **The web app's own auth cannot be borrowed.** `user/getLoginToken` mints a token, but the API rejects it as both `TRAUV1 <userID>_<token>` and `Bearer <token>` (401). The `SetupTokenLogon` handshake at `/app/wh/AjaxService.asmx/` that would exchange it for a `tr_uatoken` session cookie is blocked at the edge (nginx 405).
+
+**What this means in practice:** we can create, read by id, update and delete. We cannot discover what already exists. Deleting or replacing pre-existing auto messages requires either reading the ids out of a logged-in browser session, or clearing them by hand in the Trainerize app.
+
+---
+
+### Delete and recovery pattern
+
+Because auto messages cannot be listed, **the run log is the only record that a batch ever happened.** Treat it as the recovery mechanism, in the same spirit as soft delete on scheduled posts.
+
+The bulk scheduler writes a JSON run log containing every created id, and rewrites it after each individual create rather than at the end, so a crash mid-batch still leaves every id already written recoverable. `--rollback <run log>` deletes only the ids in that file. Nothing else is ever deleted.
+
+If a batch is run without keeping its log, those messages become unmanageable from our side - they can only be removed by hand in the Trainerize app. Keep the logs.
+
+---
+
+### Verification and current state
+
+The whole surface was proven end to end against the live API using **Connor's own client account (`5346208`, connormeyler@gmail.com)**, which is separate from the trainer account (`5343380`). Every probe record was deleted afterwards and each deletion confirmed by a follow-up `get` returning 404. No real client account was written to at any point during discovery.
+
+**Currently live:** "EOM Report TESTER" is scheduled on client `5346208` for the last Saturday of each month at 12:00 client-local, twelve occurrences from 2026-08-29 through 2027-07-31. Ids `92264268` to `92264279`.
+
+Note that the last-Saturday date maths here is the same rule already implemented by `getEomDeadlineMonday(year, month)` in `cycle.js` for the EOM reminder DMs. If auto messages are ever wired into the portal proper, reuse that function rather than writing a second implementation.
+
+---
+
+## Shared form links and name matching (August 2026)
+
+### The decision
+
+The weekly check-in and EOM report moved from **one personal link per client** to
+**one shared link per form**, matching how Typeform had always worked:
+
+```
+forms.myfitcoach.ie/checkin    every MyFitCoach client
+forms.myfitcoach.ie/monthly    every Core client
+forms.myfitcoach.ie/join       onboarding (already shared)
+```
+
+The client identifies themselves by typing their name at question 1, using the
+same wording the Typeform used: "Full name (as shown in Trainerize)".
+
+**Why the reversal:** per-client tokens were built first, but they meant 40
+distinct URLs to mint, distribute and keep straight, and every auto message
+body had to be personalised. Connor's judgement was that the token scheme was
+messier than the problem it solved, and that name matching had worked well for
+1,000+ submissions. Reverting removed the entire token-minting job from the
+rollout and made the auto message body identical for every client.
+
+### Matching
+
+`forms/lib/match.js` is a deliberate copy of the algorithm in
+`backend/routes/webhooks.js` - same normalisation (strip fadas, apostrophes and
+punctuation, lowercase, collapse spaces), same Levenshtein similarity ratio,
+same **0.8 threshold**. A name that matched under Typeform matches identically
+here.
+
+It is duplicated rather than imported because the forms service is deliberately
+free of any code dependency on the portal. If the threshold is ever tuned,
+change both.
+
+Verified behaviour: "Seán Ó Briain" matches "Sean O Briain" at 100%,
+"Jonathon Stanley" matches "Jonathan Stanley" at 94%, and "Dave" against
+"David Goggins" scores 23% and correctly does not match.
+
+### Unmatched submissions are never discarded
+
+**This is the one place the new system deliberately differs from the old one.**
+
+The Typeform webhook drops an unmatched submission on the floor - it logs a
+warning and returns 200, and the portal never sees it. (The response still
+exists in Typeform's own Responses area, so the data was not destroyed, but
+nothing reached the portal and nothing flagged it.)
+
+The forms service instead writes it to `unmatched_submissions` with the answers
+and the built `form_data` intact, plus the closest client and that score as a
+suggestion. `/admin/unmatched` lists them with a badge in the nav, and assigning
+one inserts it into `checkins` exactly as the matched path would have, using the
+same `mfc_<uuid>` response id so the dedup index still applies.
+
+**Why a separate table rather than a nullable `checkins.client_id`:** the
+reminder scheduler uses `cl.id NOT IN (SELECT client_id FROM checkins ...)`.
+A single NULL in that subquery makes `NOT IN` return no rows for everyone, which
+would silently stop every check-in reminder. A separate table cannot affect any
+existing query.
+
+The submitted name is stored verbatim in `form_data` even after assignment, so
+the record always shows what the client actually typed.
+
+### Drafts are keyed by browser, not by client
+
+`form_drafts` was keyed `(client_id, form_type, cycle_start)`, which required
+knowing who the client was on page load. With a shared link nobody is
+identified until question 1, so drafts are now keyed on the **submission UUID**
+the browser generates and holds in `localStorage`, the same pattern
+`onboarding_drafts` already used. `client_id` is now nullable and unused.
+
+The UUID is cleared on successful submit so the next cycle starts a clean draft
+rather than resuming a finished one.
+
+### The remembered name
+
+After a successful submit the browser stores the typed name under
+`mfc_client_name`, shared between the weekly and monthly forms since the same
+person fills both on the same device. On the next visit it is sent to
+`/state`, which resolves it so the welcome screen can greet them by name and
+tell them whether they have already submitted this cycle, and question 1 comes
+prefilled.
+
+**The prefill deliberately does not auto-skip the question.** A shared or family
+device would otherwise file one person's check-in under another's name with no
+visible signal. Prefilled plus one keypress is the whole benefit; skipping adds
+a failure mode that cannot be seen.
+
+### Field refs are unchanged
+
+The name question reuses the original Typeform refs -
+`be65ced6-dd03-44dd-86a8-e09d7d48f334` for the weekly form and `eom-name` for
+the EOM report - and is stored with `fieldType: 'short_text'`. 1,039 historical
+weekly check-ins and 26 EOM reports already carry those exact refs, so new
+submissions are indistinguishable in shape from the Typeform era and every
+portal parser, trend graph and CSV export works unchanged.
+
+`form_links`, `lib/tokens.js` and `db/generate-links.js` are left in place but
+unused, in case per-client links are ever wanted again.

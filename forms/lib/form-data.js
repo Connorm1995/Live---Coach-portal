@@ -62,10 +62,13 @@ function buildFormData(def, answers) {
       const text = String(value).trim();
       if (!text) continue;
       if (q.kind === 'choice' && !q.options.includes(text)) continue;
+      // fieldType lets a question pin its Typeform field type explicitly - the
+      // name question is a short_text so it matches the historical records.
+      const fieldType = q.fieldType || (q.kind === 'choice' ? 'multiple_choice' : 'long_text');
       out.push({
         type: 'text',
         text,
-        field: { id: q.ref, ref: q.ref, type: q.kind === 'choice' ? 'multiple_choice' : 'long_text' },
+        field: { id: q.ref, ref: q.ref, type: fieldType },
       });
     }
   }
@@ -83,6 +86,13 @@ function validateAnswers(def, answers) {
   for (const q of def.QUESTIONS) {
     if (!def.conditionMet(q.conditional, answers)) continue;
     const value = answers[q.id];
+    // Explicitly required questions (the name) must be answered whatever their
+    // kind. Everything else keeps the original rule: scales and choices are
+    // mandatory, free text is optional.
+    if (q.required) {
+      const empty = value == null || String(value).trim() === '';
+      if (empty) { problems.push(q.id); continue; }
+    }
     if (q.kind === 'scale') {
       const n = parseInt(value, 10);
       if (!Number.isInteger(n) || n < 1 || n > 10) problems.push(q.id);
