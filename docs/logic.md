@@ -912,7 +912,7 @@ For a master program rather than a client calendar, swap `date` for `day` (day n
 - `sendTime` is **minutes from midnight**, so 720 is 12:00 and 540 is 09:00.
 - The app's dropdown only offers 5:00am to 9:00pm in 30 minute steps (300 to 1260), but the API accepts any minute value. 547 and 60 both stored and read back correctly. Staying inside the dropdown range is safer if the message should also be editable in the app.
 - The API accepts more than three messages in `detail.messages`, but the app's dialog caps at three and only renders three. Do not exceed three.
-- `{firstName}` and `{lastName}` tokens are stored verbatim and resolved by Trainerize at send time.
+- ~~`{firstName}` and `{lastName}` tokens are stored verbatim and resolved by Trainerize at send time.~~ **WRONG - corrected 6 Aug 2026.** They are stored verbatim and then sent verbatim. A test message scheduled on Connor's own account arrived reading "Good afternoon {firstName}" literally. Personalise the body yourself before calling `dailyMessage/add`; `personalise()` in `backend/lib/auto-messages.js` does this, giving each client their own copy of the body with their real name already in it.
 - A minimal message of just `{ body, type }` is accepted; the null fields above are what the app sends and are kept for fidelity.
 - Past dates are accepted without complaint. There is no server-side guard against scheduling into the past.
 

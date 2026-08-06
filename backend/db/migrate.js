@@ -474,6 +474,44 @@ async function migrate() {
       );
     `);
 
+    // Trainerize auto messages (dailyMessage/*) run log.
+    //
+    // Auto messages live entirely inside Trainerize and CANNOT be listed back
+    // through the API - there is no dailyMessage/getList and calendar/getList
+    // omits them (see docs/logic.md). This table is therefore the only record
+    // that a message exists. It is the recovery mechanism, in the same spirit
+    // as soft delete on scheduled posts, and it lives in the database rather
+    // than a JSON file precisely so it cannot be lost with a laptop or a
+    // cleared temp directory.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS auto_messages (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        trainerize_user_id BIGINT NOT NULL,
+        trainerize_message_id BIGINT NOT NULL UNIQUE,
+        kind VARCHAR NOT NULL CHECK (kind IN ('weekly', 'eom')),
+        send_date DATE NOT NULL,
+        send_time_minutes INTEGER NOT NULL,
+        title VARCHAR NOT NULL,
+        batch_id VARCHAR NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        deleted_at TIMESTAMPTZ
+      );
+    `);
+
+    // "What does this client still have scheduled?" - the query the runway
+    // top-up and the idempotency check both run.
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_auto_messages_live
+      ON auto_messages (coach_id, client_id, kind, deleted_at, send_date);
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_auto_messages_batch
+      ON auto_messages (batch_id);
+    `);
+
     await client.query('COMMIT');
     console.log('Migration complete.');
   } catch (err) {
