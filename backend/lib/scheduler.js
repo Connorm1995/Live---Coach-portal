@@ -163,31 +163,11 @@ function getDublinTime() {
   return getTimeInZone('Europe/Dublin');
 }
 
-/**
- * Check if weekly reminders have already been logged for this cycle.
- */
-async function hasWeeklyRemindersBeenProcessed(cycleStart) {
-  const result = await pool.query(
-    `SELECT 1 FROM reminder_logs
-     WHERE coach_id = $1 AND reminder_type = 'weekly_checkin' AND cycle_start = $2
-     LIMIT 1`,
-    [COACH_ID, cycleStart]
-  );
-  return result.rows.length > 0;
-}
-
-/**
- * Check if EOM reminders have already been logged for this cycle.
- */
-async function hasEomRemindersBeenProcessed(cycleStart) {
-  const result = await pool.query(
-    `SELECT 1 FROM reminder_logs
-     WHERE coach_id = $1 AND reminder_type = 'eom_report' AND cycle_start = $2
-     LIMIT 1`,
-    [COACH_ID, cycleStart]
-  );
-  return result.rows.length > 0;
-}
+// Both reminders deliberately have NO "has this cycle been processed?" gate.
+// Whether a client still needs reminding is decided per client, by excluding
+// anyone who already has a reminder_logs row for the cycle. A single global
+// gate would mark the whole cycle done the moment the first client fired,
+// which silently skips every client whose local 7pm has not arrived yet.
 
 /**
  * Check if reminders are enabled in coach_settings. Defaults to true.
@@ -279,7 +259,7 @@ async function processReminders() {
   try {
     const dublin = getDublinTime();
 
-    // --- Weekly reminder: Monday at 8:30pm in each client's local timezone ---
+    // --- Weekly reminder: Monday at 7:00pm in each client's local timezone ---
     // Check if it's Monday in Dublin (as a gate to avoid unnecessary DB queries on other days)
     if (dublin.weekday === 1) {
       const cycleStart = getCurrentCycleSunday();
@@ -318,15 +298,20 @@ async function processReminders() {
           clientTime = dublin;
         }
 
-        if (clientTime.weekday === 1 && (clientTime.hour > 20 || (clientTime.hour === 20 && clientTime.minute >= 30))) {
+        // 7pm, one hour after the 6pm deadline stated in the Sunday auto
+        // message - a grace-period nudge, not a pre-deadline warning.
+        if (clientTime.weekday === 1 && clientTime.hour >= 19) {
           const clientEnabled = enabled && client.reminders_enabled;
           await sendReminderDM(client, message, 'weekly_checkin', cycleStart, clientEnabled);
         }
       }
     }
 
-    // --- EOM reminder: deadline Monday at 7:00pm Dublin time ---
-    if (dublin.weekday === 1 && dublin.hour >= 19) {
+    // --- EOM reminder: deadline Monday at 7:00pm in each client's timezone ---
+    // Dublin only gates the day here, exactly as the weekly reminder does. The
+    // 7pm check is per client below, so a Core client abroad is reminded at
+    // their own 7pm rather than Dublin's.
+    if (dublin.weekday === 1) {
       // Check if today is the EOM deadline Monday for the current or previous month
       const monthsToCheck = [
         { year: dublin.year, month: dublin.month },
@@ -345,35 +330,51 @@ async function processReminders() {
           // Today is the EOM deadline Monday for this month
           const cycleStart = `${year}-${String(month).padStart(2, '0')}-01`;
 
-          if (!(await hasEomRemindersBeenProcessed(cycleStart))) {
-            const settings = await getReminderSettings();
-            const enabled = settings.global && settings.core;
-            console.log(`[Reminders] Processing EOM report reminders (cycle: ${cycleStart}, enabled: ${enabled})`);
+          const settings = await getReminderSettings();
+          const enabled = settings.global && settings.core;
 
-            // Find active Core clients who haven't submitted for this cycle
-            const result = await pool.query(
-              `SELECT cl.id, cl.name, cl.trainerize_id, cl.reminders_enabled
-               FROM clients cl
-               WHERE cl.coach_id = $1
-                 AND cl.active = true
-                 AND cl.program = 'my_fit_coach_core'
-                 AND cl.id NOT IN (
-                   SELECT client_id FROM checkins
-                   WHERE coach_id = $1 AND type = 'eom_report' AND cycle_start = $2
-                 )
-               ORDER BY cl.name`,
-              [COACH_ID, cycleStart]
-            );
+          // Core clients who have not submitted AND have not already been
+          // reminded this cycle.
+          //
+          // The per-client reminder_logs exclusion replaces the old single
+          // "has this cycle been processed?" gate. That gate was safe only
+          // while every client fired in the same minute on Dublin time - with
+          // per-client timezones the first client to be reminded would have
+          // marked the whole cycle done and everyone further west would have
+          // been skipped for good.
+          const result = await pool.query(
+            `SELECT cl.id, cl.name, cl.trainerize_id, cl.reminders_enabled, cl.timezone
+             FROM clients cl
+             WHERE cl.coach_id = $1
+               AND cl.active = true
+               AND cl.program = 'my_fit_coach_core'
+               AND cl.id NOT IN (
+                 SELECT client_id FROM checkins
+                 WHERE coach_id = $1 AND type = 'eom_report' AND cycle_start = $2
+               )
+               AND cl.id NOT IN (
+                 SELECT client_id FROM reminder_logs
+                 WHERE coach_id = $1 AND reminder_type = 'eom_report' AND cycle_start = $2
+               )
+             ORDER BY cl.name`,
+            [COACH_ID, cycleStart]
+          );
 
-            const message = 'Hey [first name], just sending a nudge on your check-in. Still time to get it in or book in for a call if you haven\'t already  🙌';
+          const message = 'Hey [first name], just sending a nudge on your check-in. Still time to get it in or book in for a call if you haven\'t already  🙌';
 
-            for (const client of result.rows) {
-              const clientEnabled = enabled && client.reminders_enabled;
-              await sendReminderDM(client, message, 'eom_report', cycleStart, clientEnabled);
+          for (const client of result.rows) {
+            const clientTz = client.timezone || 'Europe/Dublin';
+            let clientTime;
+            try {
+              clientTime = getTimeInZone(clientTz);
+            } catch (e) {
+              console.warn(`[Reminders] Invalid timezone "${clientTz}" for ${client.name}, falling back to Dublin`);
+              clientTime = dublin;
             }
 
-            if (result.rows.length === 0) {
-              console.log('[Reminders] No EOM reminders needed - all Core clients have submitted');
+            if (clientTime.weekday === 1 && clientTime.hour >= 19) {
+              const clientEnabled = enabled && client.reminders_enabled;
+              await sendReminderDM(client, message, 'eom_report', cycleStart, clientEnabled);
             }
           }
 
@@ -457,8 +458,18 @@ async function reconcileClients() {
     }
 
     const programByUserId = await fetchProgramByUserId();
+
+    // An empty map means the tag lookup failed or returned nothing, not that
+    // every client is untagged. Correcting against it would clear the program
+    // on all of them, so treat program data as unavailable for this run.
+    const canCorrectPrograms = Object.keys(programByUserId).length > 0;
+    if (!canCorrectPrograms) {
+      console.warn('[Reconcile] No program tags resolved - skipping program corrections this run');
+    }
+
     let added = 0;
     let linked = 0;
+    let corrected = 0;
 
     for (const c of clients) {
       const trainerizeId = String(c.id);
@@ -466,12 +477,31 @@ async function reconcileClients() {
       const email = (c.email || '').toLowerCase() || null;
       if (!name) continue;
 
-      // Already linked by trainerize_id - nothing to do.
+      // Already linked by trainerize_id - keep the program in step with the
+      // Trainerize tag. Tags are the source of truth for which program a client
+      // is on, and nothing else ever rewrites program, so a dropped or
+      // misread userTag webhook would otherwise leave the portal stale forever.
       const byTid = await pool.query(
-        `SELECT id FROM clients WHERE trainerize_id = $1 AND coach_id = $2`,
+        `SELECT id, name, program FROM clients WHERE trainerize_id = $1 AND coach_id = $2`,
         [trainerizeId, COACH_ID]
       );
-      if (byTid.rows.length > 0) continue;
+      if (byTid.rows.length > 0) {
+        const row = byTid.rows[0];
+        const tagProgram = programByUserId[c.id];
+        // No tag resolved means "unknown", never "clear the program".
+        if (canCorrectPrograms && tagProgram && tagProgram !== row.program) {
+          await pool.query(
+            `UPDATE clients SET program = $1 WHERE id = $2 AND coach_id = $3`,
+            [tagProgram, row.id, COACH_ID]
+          );
+          console.log(
+            `[Reconcile] Corrected program for "${row.name}" (id=${row.id}): ` +
+            `${row.program || 'none'} -> ${tagProgram}`
+          );
+          corrected++;
+        }
+        continue;
+      }
 
       // A row may exist by email but with no trainerize_id (e.g. the webhook
       // created it before the userID lookup resolved). Link it, don't duplicate.
@@ -507,10 +537,13 @@ async function reconcileClients() {
       added++;
     }
 
-    if (added || linked) {
-      console.log(`[Reconcile] Done - ${added} added, ${linked} linked, ${clients.length} active checked.`);
+    if (added || linked || corrected) {
+      console.log(
+        `[Reconcile] Done - ${added} added, ${linked} linked, ${corrected} program(s) corrected, ` +
+        `${clients.length} active checked.`
+      );
     } else {
-      console.log(`[Reconcile] Done - all ${clients.length} active Trainerize clients already present.`);
+      console.log(`[Reconcile] Done - all ${clients.length} active Trainerize clients already present and in sync.`);
     }
   } catch (err) {
     console.error('[Reconcile] Error:', err.message);

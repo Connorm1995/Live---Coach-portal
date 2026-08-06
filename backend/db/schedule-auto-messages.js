@@ -8,8 +8,13 @@
  *   node backend/db/schedule-auto-messages.js weekly --commit
  *   node backend/db/schedule-auto-messages.js eom --commit
  *   node backend/db/schedule-auto-messages.js --status
+ *   node backend/db/schedule-auto-messages.js --switch "Joe Clarke" --commit
  *   node backend/db/schedule-auto-messages.js --rollback <batch_id>
  *   node backend/db/schedule-auto-messages.js --rollback-client "<name>" weekly
+ *
+ * --status also reports any client whose programme and scheduled messages
+ * disagree, or who has nothing scheduled - the safety net for a switchover
+ * done by hand in the Trainerize app and never mentioned here.
  *
  * Safety properties:
  *  - Idempotent. A client who already has live future messages of this kind is
@@ -72,6 +77,34 @@ async function showStatus() {
     );
   }
 
+  // Safety net for a switchover done by hand: surface anyone whose programme
+  // and scheduled messages disagree, or who has nothing scheduled at all.
+  const [mismatches, missing] = await Promise.all([
+    am.findProgrammeMismatches(),
+    am.findMissingSchedules(),
+  ]);
+
+  if (mismatches.length) {
+    console.log('\n!! PROGRAMME MISMATCH - these clients have the wrong kind of message scheduled:');
+    for (const m of mismatches) {
+      const want = m.program === 'my_fit_coach' ? 'weekly' : 'eom';
+      console.log(`   ${m.name.padEnd(26)} is on ${m.program} (wants ${want}) but has ${m.scheduled} ${m.kind} scheduled from ${String(m.next).slice(0, 10)}`);
+    }
+    console.log('   Fix with:  --switch <client name>');
+  }
+
+  if (missing.length) {
+    console.log('\n!! NOTHING SCHEDULED - these clients will get no prompt at all:');
+    for (const m of missing) {
+      console.log(`   ${m.name.padEnd(26)} ${m.program}`);
+    }
+    console.log('   Fix with:  --switch <client name>');
+  }
+
+  if (!mismatches.length && !missing.length) {
+    console.log('\nEvery active client has the right messages scheduled.');
+  }
+
   const batches = await pool.query(
     `SELECT batch_id, count(*)::int AS n, min(created_at) AS at
      FROM auto_messages WHERE coach_id = $1 AND deleted_at IS NULL
@@ -82,6 +115,68 @@ async function showStatus() {
   for (const b of batches.rows) {
     console.log(`  ${b.batch_id}  ${String(b.n).padStart(4)} messages  ${new Date(b.at).toISOString().slice(0, 16)}`);
   }
+}
+
+/**
+ * Bring one client's auto messages in line with the programme they are on.
+ *
+ * Removes any messages of the wrong kind and schedules the right ones. Safe to
+ * run when the old ones were already deleted by hand - rollback simply finds
+ * nothing to remove and the scheduling half still happens.
+ */
+async function switchClient(name, { commit }) {
+  const { rows } = await pool.query(
+    `SELECT id, name, trainerize_id, program FROM clients
+     WHERE coach_id = $1 AND active = true AND name ILIKE $2`,
+    [COACH_ID, name]
+  );
+  if (rows.length === 0) throw new Error(`No active client matching "${name}"`);
+  if (rows.length > 1) throw new Error(`"${name}" matches ${rows.length} clients: ${rows.map((r) => r.name).join(', ')}`);
+
+  const client = rows[0];
+  const wantKind = client.program === 'my_fit_coach' ? 'weekly' : 'eom';
+  const wrongKind = wantKind === 'weekly' ? 'eom' : 'weekly';
+  const tpl = wantKind === 'weekly' ? templates.WEEKLY : templates.EOM;
+  const dates = wantKind === 'weekly'
+    ? am.nextSundays(tpl.occurrences)
+    : am.nextLastSaturdays(tpl.occurrences);
+
+  console.log(`${commit ? 'SWITCHING' : 'DRY RUN'} - ${client.name}`);
+  console.log(`  programme  : ${client.program}  ->  wants ${wantKind} messages`);
+
+  const stale = await am.liveCountFor(client.id, wrongKind);
+  const alreadyRight = await am.liveCountFor(client.id, wantKind);
+
+  console.log(`  to remove  : ${stale} ${wrongKind} message(s)`);
+  if (alreadyRight > 0) {
+    // scheduleForClient will skip rather than stack, so say so rather than
+    // implying a fresh year is about to be created.
+    console.log(`  to create  : none - already has ${alreadyRight} ${wantKind} message(s) scheduled`);
+  } else {
+    console.log(`  to create  : ${dates.length} ${wantKind} message(s), ${dates[0]} to ${dates[dates.length - 1]}`);
+  }
+
+  if (!commit) {
+    console.log('\nDry run only. Re-run with --commit to apply.');
+    return;
+  }
+
+  if (stale > 0) {
+    const res = await am.rollbackClient(client.id, wrongKind);
+    console.log(`  removed ${res.deleted}/${res.total} ${wrongKind} messages`);
+    if (res.failures.length) console.log('  removal failures:', res.failures);
+  }
+
+  const batchId = `switch-${wantKind}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const out = await am.scheduleForClient({
+    client, dates,
+    sendTimeMinutes: tpl.sendTimeMinutes,
+    title: tpl.title, body: tpl.body,
+    kind: wantKind, batchId, dryRun: false,
+  });
+  if (out.skipped) console.log(`  skipped: ${out.skipped}`);
+  else console.log(`  created ${out.created} ${wantKind} messages, ${out.first} to ${out.last}`);
+  console.log(`\nRoll back with:  --rollback ${batchId}`);
 }
 
 async function run() {
@@ -98,6 +193,13 @@ async function run() {
     console.log(`Rolled back ${res.deleted}/${res.total} messages from ${batchId}`);
     if (res.failures.length) console.log('Failures:', res.failures);
     return;
+  }
+
+  const swIdx = args.indexOf('--switch');
+  if (swIdx !== -1) {
+    const name = args[swIdx + 1];
+    if (!name || name.startsWith('--')) throw new Error('--switch needs a client name, e.g. --switch "Joe Clarke"');
+    return switchClient(name, { commit });
   }
 
   const rbcIdx = args.indexOf('--rollback-client');

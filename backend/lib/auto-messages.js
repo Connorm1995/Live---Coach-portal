@@ -260,6 +260,115 @@ async function liveCountFor(clientId, kind) {
 }
 
 /**
+ * Reconcile what we think a client has against what Trainerize actually has.
+ *
+ * Messages deleted by hand in the Trainerize app leave our log stale: it still
+ * claims 52 are scheduled when the calendar is empty. That stale count would
+ * then make the idempotency check refuse to reschedule the client, which is
+ * the worst outcome - the coach thinks they are covered and they are not.
+ *
+ * We cannot list a client's messages, but we CAN read any recorded id back,
+ * and a deleted one returns 404.
+ *
+ * Two passes, deliberately:
+ *
+ *  1. Sample the next few. If they all still exist, the log is trustworthy and
+ *     we stop - a few API calls in the common case.
+ *  2. If any is missing, check EVERY live row and mark exactly the missing
+ *     ones deleted.
+ *
+ * The second pass is what makes this safe. An earlier version cleared the
+ * whole client's log when the sample came back empty, which was wrong: a coach
+ * deleting only the next few weeks would have had all 52 rows marked gone,
+ * and the reschedule would then have stacked a fresh year on top of the ~49
+ * still sitting live in Trainerize. Marking only what is genuinely absent
+ * cannot produce duplicates.
+ */
+async function reconcileClient(clientId, kind, { sample = 3 } = {}) {
+  const { rows } = await pool.query(
+    `SELECT * FROM auto_messages
+     WHERE coach_id = $1 AND client_id = $2 AND kind = $3
+       AND deleted_at IS NULL AND send_date >= CURRENT_DATE
+     ORDER BY send_date`,
+    [COACH_ID, clientId, kind]
+  );
+  if (rows.length === 0) return { checked: 0, missing: 0, cleared: 0 };
+
+  // Pass 1 - cheap check of the soonest few.
+  let sampleMissing = 0;
+  for (const row of rows.slice(0, sample)) {
+    if (await fetchOne(row.trainerize_message_id, row.trainerize_user_id) === null) sampleMissing++;
+    await sleep(THROTTLE_MS);
+  }
+  if (sampleMissing === 0) return { checked: Math.min(sample, rows.length), missing: 0, cleared: 0 };
+
+  // Pass 2 - something has been deleted by hand, so establish exactly what.
+  const missingIds = [];
+  for (const row of rows) {
+    if (await fetchOne(row.trainerize_message_id, row.trainerize_user_id) === null) missingIds.push(row.id);
+    await sleep(THROTTLE_MS);
+  }
+
+  let cleared = 0;
+  if (missingIds.length > 0) {
+    const res = await pool.query(
+      `UPDATE auto_messages SET deleted_at = now() WHERE id = ANY($1::int[])`,
+      [missingIds]
+    );
+    cleared = res.rowCount;
+  }
+  return { checked: rows.length, missing: missingIds.length, cleared };
+}
+
+/**
+ * Clients whose programme no longer matches the auto messages they have
+ * scheduled - e.g. moved to Core but still holding weekly Sunday prompts.
+ *
+ * This is the safety net for a switchover done by hand and not mentioned.
+ * It only reports; correcting is a deliberate command, never automatic.
+ */
+async function findProgrammeMismatches() {
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.program, a.kind, count(*)::int AS scheduled,
+            min(a.send_date) AS next
+     FROM auto_messages a
+     JOIN clients c ON c.id = a.client_id
+     WHERE a.coach_id = $1 AND a.deleted_at IS NULL AND a.send_date >= CURRENT_DATE
+       AND c.active = true
+       AND ((c.program = 'my_fit_coach'      AND a.kind <> 'weekly')
+         OR (c.program = 'my_fit_coach_core' AND a.kind <> 'eom'))
+     GROUP BY c.id, c.name, c.program, a.kind
+     ORDER BY c.name`,
+    [COACH_ID]
+  );
+  return rows;
+}
+
+/**
+ * Clients on a programme who have NO auto messages scheduled at all - the
+ * other half of the switchover gap, where the old ones were deleted by hand
+ * and the new ones never created.
+ */
+async function findMissingSchedules() {
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.program
+     FROM clients c
+     WHERE c.coach_id = $1 AND c.active = true
+       AND c.trainerize_id IS NOT NULL
+       AND c.program IN ('my_fit_coach', 'my_fit_coach_core')
+       AND NOT EXISTS (
+         SELECT 1 FROM auto_messages a
+         WHERE a.client_id = c.id AND a.deleted_at IS NULL
+           AND a.send_date >= CURRENT_DATE
+           AND a.kind = CASE WHEN c.program = 'my_fit_coach' THEN 'weekly' ELSE 'eom' END
+       )
+     ORDER BY c.name`,
+    [COACH_ID]
+  );
+  return rows;
+}
+
+/**
  * Schedule a run of auto messages for one client.
  *
  * Idempotent by design: a client who already has live future messages of this
@@ -270,8 +379,21 @@ async function scheduleForClient({ client, dates, sendTimeMinutes, title, body, 
     return { client: client.name, skipped: 'no trainerize_id', created: 0 };
   }
 
-  const existing = await liveCountFor(client.id, kind);
+  let existing = await liveCountFor(client.id, kind);
   if (existing > 0) {
+    // Trust Trainerize over our own records: messages deleted by hand in the
+    // app leave the log stale, and skipping on a stale count would wrongly
+    // leave the client with nothing scheduled.
+    const check = await reconcileClient(client.id, kind);
+    if (check.cleared > 0) {
+      console.log(`[AutoMessages] ${client.name}: ${check.cleared} logged ${kind} message(s) no longer exist in Trainerize (deleted in the app) - log corrected`);
+      existing = await liveCountFor(client.id, kind);
+    }
+  }
+  if (existing > 0) {
+    // Some are still genuinely scheduled. Do not top up to a full year here -
+    // that would leave an uneven, half-overlapping run. Deal with it
+    // explicitly via --switch or --rollback-client.
     return { client: client.name, skipped: `already has ${existing} scheduled`, created: 0 };
   }
 
@@ -341,6 +463,9 @@ module.exports = {
   nextSundays,
   nextLastSaturdays,
   liveCountFor,
+  reconcileClient,
+  findProgrammeMismatches,
+  findMissingSchedules,
   scheduleForClient,
   rollbackBatch,
   rollbackClient,

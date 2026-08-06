@@ -1062,3 +1062,75 @@ portal parser, trend graph and CSV export works unchanged.
 
 `form_links`, `lib/tokens.js` and `db/generate-links.js` are left in place but
 unused, in case per-client links are ever wanted again.
+
+---
+
+## Auto messages and reminders: the programme switch (August 2026)
+
+### Two mechanisms, one per cadence
+
+A client on a programme has two things pointed at them:
+
+| | Sunday / last Saturday | Monday 7pm |
+|---|---|---|
+| What | The prompt with the form link | The nudge if nothing came in |
+| Where | Trainerize **calendar** (`dailyMessage`) | Trainerize **DM** (`message/send`) |
+| Held by | Trainerize, via `auto_messages` log | The portal's own scheduler |
+| Fires | Always | Only if no check-in for that cycle |
+
+### Switching a client between programmes
+
+The **reminder** half needs no action. Both reminder queries filter on
+`clients.program`, so changing the programme moves the client from one pool to
+the other on the next scheduler tick. Nothing else to do.
+
+The **calendar** half does need action, because those messages are already
+sitting on dates in Trainerize. `--switch "<name>"` removes the wrong-kind
+messages and schedules the right ones.
+
+### Reminder timing is now per client, both cadences
+
+Weekly moved from Monday 8:30pm to **Monday 7pm** - one hour after the 6pm
+deadline stated in the Sunday prompt, so it reads as a grace-period nudge
+rather than a pre-deadline warning that contradicts the stated cutoff.
+
+The EOM reminder was firing on a single `dublin.hour >= 19` gate. It now
+resolves 7pm in each client's own timezone, matching the weekly one.
+
+**That change required removing the `hasEomRemindersBeenProcessed` gate**, and
+this is the subtle part. That helper asked "has any reminder been logged for
+this cycle?" and skipped the whole block if so. Safe only while every client
+fired in the same minute on Dublin time. With per-client timezones the first
+client reminded would have marked the cycle done and every client further west
+would have been skipped permanently. Both reminders now exclude clients
+per-row via `reminder_logs` instead. Do not reintroduce a cycle-level gate.
+
+### The log can disagree with Trainerize, and self-corrects
+
+Messages deleted by hand in the Trainerize app leave `auto_messages` stale: it
+still claims 52 are scheduled when they are not. A stale count would make the
+idempotency check skip that client, leaving them silently with no prompt.
+
+`reconcileClient()` handles it. It samples the next few recorded messages, and
+if any is missing it checks every one and marks **only** the genuinely absent
+rows deleted.
+
+The two-pass design is deliberate. Clearing the client's whole log when a small
+sample came back missing was the first attempt and it was wrong: a coach who
+deleted only the next few weeks would have had all 52 rows marked gone, and the
+reschedule would then have stacked a fresh year on top of the ~48 still live in
+Trainerize. Marking only what is verifiably absent cannot produce duplicates.
+Verified by deleting 4 of Connor's 52 behind the log's back: reconcile found
+exactly 4 and left the other 48 alone.
+
+### The safety net
+
+`--status` reports two conditions, because a switchover done by hand and never
+mentioned here is the expected case, not the exception:
+
+- **Programme mismatch** - on Core but still holding weekly messages, or vice versa
+- **Nothing scheduled** - on a programme but with no prompts at all
+
+Both are reported only. Correcting is always a deliberate `--switch`, never
+automatic, because silently creating or deleting messages on a client's
+calendar is not something a status command should do.
