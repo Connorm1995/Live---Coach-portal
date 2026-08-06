@@ -1,3 +1,4 @@
-# https://www.robotstxt.org/robotstxt.html
+# The coach portal holds client personal data and is password protected.
+# Nothing here should be crawled, indexed, or archived by anyone.
 User-agent: *
-Disallow:
+Disallow: /
