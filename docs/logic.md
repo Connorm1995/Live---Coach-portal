@@ -1435,3 +1435,60 @@ clipped and no inner scrollbar. Every element still AAA.
 A textarea answer is only written to the draft on Enter or the OK button, not as
 the client types, unlike the single-line input which saves on every keystroke.
 Left alone as it is a behaviour change rather than a readability one.
+
+---
+
+## Onboarding archive (August 2026)
+
+331 onboarding questionnaires filled in on Typeform before MyFitCoach Forms
+existed: 322 on the original form `UPiYhp4b` (Aug 2021 to Mar 2026) and 9 on
+`H4Y0MeYY` (Mar to Jul 2026).
+
+### Deliberately unconnected
+
+Connor's requirement, in his words: "somewhere I can just keep old onboarding
+forms if I ever want to look back in the future. That's it." **No client link, no
+Trainerize sync, no status.** An earlier plan to match them to clients by email
+was dropped on his instruction.
+
+**Its own table, not `onboarding_submissions`.** That table carries Trainerize
+sync state (`synced` / `sync_failed`, `trainerize_user_id`), none of which means
+anything for a historical record. Marking 331 rows `sync_failed` would have
+filled the admin screen with permanent false alarms, and the alternative was
+widening a CHECK constraint on a live table for the sake of dead data. A separate
+table cannot affect any existing query.
+
+### Answers keep their original wording and order
+
+`answers` is an **ordered array** of `{ref, question, type, answer}`, not an
+object keyed by field id. The two forms asked different questions - 30 versus 39,
+and three separate old questions (blood pressure, medication, eating disorder
+history) correspond to a single field on the newer form. Normalising them into
+one shape would have misrepresented what was actually asked, so each answer
+carries the question exactly as it was worded, in the order it was asked.
+
+Typeform stores emphasis as markdown, so titles arrive as `*First name*`. Only
+the markers are stripped; the wording is untouched.
+
+### The import
+
+`node forms/db/import-onboarding-archive.js` - dry run by default, `--commit` to
+write. Idempotent via `UNIQUE (coach_id, source_response_id)` with
+ON CONFLICT DO NOTHING, so it is safe to re-run and safe to resume.
+
+**Typeform was in a major outage during this import** (INC-169, 7 Aug 2026), so
+the client retries up to 25 times with backoff to 20s, and treats 5xx and 429 as
+retryable while failing fast on other 4xx. Individual calls needed up to 11
+attempts. Without that patience the import could not have completed at all.
+
+### Verified after import
+
+322 + 9 = 331 rows, zero duplicate response ids, and zero rows missing answers,
+name, email or date. All 30 distinct questions from the original form are
+present, confirming nothing was flattened away.
+
+### Where to find it
+
+`/admin/archive` in MyFitCoach Forms - a searchable list by name or email
+(300 most recent shown, search narrows), and a detail page rendering the form as
+it was asked. Read only: there is no edit or delete path by design.

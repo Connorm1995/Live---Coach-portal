@@ -186,6 +186,7 @@ function topbar(active, unmatchedCount) {
     ${link('/admin', 'Check-ins', 'checkins')}
     ${link('/admin/onboarding', 'Onboarding', 'onboarding')}
     ${link('/admin/unmatched', 'Unmatched', 'unmatched')}${badge}
+    ${link('/admin/archive', 'Archive', 'archive')}
     <a href="/admin/logout">Log out</a>
   </div>`;
 }
@@ -735,6 +736,114 @@ router.post('/admin/unmatched/:id/assign', requireAdmin, express.urlencoded({ ex
     return res.redirect(`/admin/unmatched/${id}`);
   } finally {
     client.release();
+  }
+});
+
+// ---- Onboarding archive ----
+//
+// Historical onboarding questionnaires filled in on Typeform before MyFitCoach
+// Forms existed. Read only, and deliberately unconnected: no client link, no
+// Trainerize, no status. It exists purely to look back at an old form.
+
+router.get('/admin/archive', requireAdmin, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const params = [COACH_ID];
+    let where = 'WHERE coach_id = $1';
+    if (q) {
+      params.push('%' + q.toLowerCase() + '%');
+      where += ` AND (lower(name) LIKE $2 OR lower(email) LIKE $2)`;
+    }
+
+    const [result, totals] = await Promise.all([
+      pool.query(
+        `SELECT id, name, email, submitted_at, source_form_title,
+                jsonb_array_length(answers) AS answer_count
+         FROM onboarding_archive ${where}
+         ORDER BY submitted_at DESC NULLS LAST
+         LIMIT 300`,
+        params
+      ),
+      pool.query(`SELECT count(*)::int AS n, min(submitted_at) AS oldest,
+                         max(submitted_at) AS newest
+                  FROM onboarding_archive WHERE coach_id = $1`, [COACH_ID]),
+    ]);
+
+    const t = totals.rows[0];
+    const rows = result.rows.map((r) => `
+      <tr class="row" onclick="window.location='/admin/archive/${r.id}'">
+        <td>${dublin(r.submitted_at)}</td>
+        <td>${esc(r.name || '(no name)')}</td>
+        <td>${esc(r.email || '')}</td>
+        <td>${r.answer_count} answers</td>
+      </tr>`).join('');
+
+    const range = t.n > 0
+      ? `${t.n} archived form${t.n === 1 ? '' : 's'}, ${dublin(t.oldest).slice(0, 11)} to ${dublin(t.newest).slice(0, 11)}.`
+      : '';
+
+    res.send(page('Archive', `
+      ${topbar('archive')}
+      <div class="wrap">
+        <h1>Onboarding archive</h1>
+        <div class="sub">
+          Old onboarding questionnaires from Typeform, kept so you can look back at them.
+          Read only - these are not linked to clients and are not connected to Trainerize.
+          ${esc(range)} Times in Europe/Dublin (Dublin time).
+        </div>
+        <form class="filters" method="GET" action="/admin/archive">
+          <input type="text" name="q" value="${esc(q)}" placeholder="Search by name or email"
+                 style="font-family:'DM Sans',sans-serif;font-size:14px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;min-width:260px" />
+          <button class="btn" type="submit">Search</button>
+          ${q ? '<a class="btn btn--ghost" href="/admin/archive">Clear</a>' : ''}
+        </form>
+        ${result.rows.length === 0
+          ? `<div class="empty">${q
+              ? 'Nothing matches "' + esc(q) + '".'
+              : 'The archive is empty. Run: node forms/db/import-onboarding-archive.js --commit'}</div>`
+          : `<table>
+              <tr><th>Submitted (Dublin time)</th><th>Name</th><th>Email</th><th>Length</th></tr>
+              ${rows}
+            </table>
+            ${result.rows.length === 300 ? '<div class="sub" style="margin-top:16px">Showing the 300 most recent. Search to narrow it down.</div>' : ''}`}
+      </div>`));
+  } catch (err) {
+    console.error('[admin archive list] Error:', err.message);
+    res.status(500).send(page('Error', '<div class="wrap"><h1>Something went wrong</h1></div>'));
+  }
+});
+
+router.get('/admin/archive/:id', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM onboarding_archive WHERE id = $1 AND coach_id = $2`,
+      [parseInt(req.params.id, 10), COACH_ID]
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).send(page('Not found', '<div class="wrap"><h1>Not found</h1></div>'));
+
+    // Stored as an ordered array of {question, answer}, so it reads back in the
+    // order it was originally asked, with the original wording.
+    const body = (row.answers || []).map((a) => `
+      <div style="margin-bottom:22px">
+        <div style="font-size:13px;color:var(--slate);margin-bottom:4px">${esc(a.question || '')}</div>
+        <div style="font-size:15px;white-space:pre-wrap">${esc(a.answer || '') || '<span style="color:var(--slate)">(no answer)</span>'}</div>
+      </div>`).join('');
+
+    res.send(page(row.name || 'Archived form', `
+      ${topbar('archive')}
+      <div class="wrap">
+        <a class="btn btn--ghost" href="/admin/archive" style="margin-bottom:20px">Back to archive</a>
+        <h1>${esc(row.name || '(no name)')}</h1>
+        <div class="sub">
+          ${esc(row.email || '')} &nbsp;|&nbsp; submitted ${dublin(row.submitted_at)} (Dublin time)
+          <br />${esc(row.source_form_title || '')}
+        </div>
+        ${body || '<div class="empty">This form has no answers recorded.</div>'}
+      </div>`));
+  } catch (err) {
+    console.error('[admin archive detail] Error:', err.message);
+    res.status(500).send(page('Error', '<div class="wrap"><h1>Something went wrong</h1></div>'));
   }
 });
 

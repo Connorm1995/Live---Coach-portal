@@ -140,8 +140,56 @@ async function migrate() {
       ON unmatched_submissions (coach_id, resolved_at, submitted_at DESC);
     `);
 
+    // ---- Onboarding archive (Aug 2026) ----
+    //
+    // A read-only record of onboarding questionnaires filled in on Typeform
+    // before MyFitCoach Forms existed. Deliberately its OWN table rather than
+    // rows in onboarding_submissions:
+    //
+    //  - onboarding_submissions carries Trainerize sync state (synced /
+    //    sync_failed, trainerize_user_id). None of that means anything for a
+    //    historical record, and marking 331 of them sync_failed would fill the
+    //    admin screen with permanent false alarms.
+    //  - Connor's requirement is simply "somewhere I can look back at old
+    //    onboarding forms". No client link, no Trainerize connection, no
+    //    status. A separate table cannot affect any live query.
+    //
+    // `answers` is an ORDERED array of {ref, question, type, answer} so the
+    // form reads back in the order it was originally asked, with the original
+    // question wording intact. The old and new Typeforms asked different
+    // questions, so normalising them into one shape would misrepresent what
+    // was actually asked.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS onboarding_archive (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        source VARCHAR NOT NULL,
+        source_form_title VARCHAR,
+        source_response_id VARCHAR NOT NULL,
+        name VARCHAR,
+        email VARCHAR,
+        submitted_at TIMESTAMPTZ,
+        answers JSONB NOT NULL,
+        imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (coach_id, source_response_id)
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_onboarding_archive_recent
+      ON onboarding_archive (coach_id, submitted_at DESC);
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_onboarding_archive_name
+      ON onboarding_archive (coach_id, lower(name));
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_onboarding_archive_email
+      ON onboarding_archive (coach_id, lower(email));
+    `);
+
     await client.query('COMMIT');
-    console.log('Forms migrations complete: form_links, form_drafts (uuid-keyed), onboarding_drafts, onboarding_submissions, unmatched_submissions');
+    console.log('MyFitCoach Forms migrations complete: form_links, form_drafts (uuid-keyed), onboarding_drafts, onboarding_submissions, unmatched_submissions, onboarding_archive');
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
