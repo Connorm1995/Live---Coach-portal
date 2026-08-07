@@ -16,9 +16,12 @@ const express = require('express');
 const checkinRoutes = require('./routes/checkin');
 const { router: onboardingRoutes } = require('./routes/onboarding');
 const adminRoutes = require('./routes/admin');
-const { initAuth } = require('./lib/auth');
+const { initAuth, isHttps } = require('./lib/auth');
 
 const app = express();
+// Railway terminates TLS at its edge, so req.secure must come from the
+// forwarded headers rather than the direct socket.
+app.set('trust proxy', 1);
 // Railway injects PORT; FORMS_PORT wins locally so it never clashes with the portal
 const PORT = process.env.FORMS_PORT || process.env.PORT || 3002;
 
@@ -40,7 +43,10 @@ app.use(express.json({ limit: '200kb' }));
  * doing deliberately later rather than half now.
  */
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'production') {
+  // Sent only on real https requests - browsers ignore HSTS over plain http,
+  // and this must not depend on NODE_ENV, which went missing on the deployed
+  // service and silently took the cookie's Secure flag with it.
+  if (isHttps(req)) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
   res.setHeader('X-Frame-Options', 'DENY');

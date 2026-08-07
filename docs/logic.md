@@ -1562,8 +1562,29 @@ The forms app now does the same.
 
 ### Security headers
 
-HSTS (production only), `X-Frame-Options: DENY`, `X-Content-Type-Options:
-nosniff` and `Referrer-Policy` on both apps.
+HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+`Referrer-Policy` on both apps.
+
+Mount them **above every route**. The portal's were first added below
+`app.get('/login')` and `/robots.txt`, so Express never ran them for either. A
+login page another site can frame is precisely what clickjacking needs. Caught
+by checking the deployed headers rather than trusting the diff.
+
+### Never gate a security control on NODE_ENV
+
+The Secure flag and HSTS were both gated on `NODE_ENV === 'production'`. That
+variable was set on the deployed service in the morning and **not set by the
+afternoon**, so the session cookie silently lost its Secure flag and could have
+been sent over plain http. Nothing failed, nothing logged, and the only reason
+it surfaced was noticing HSTS missing from the live response and checking why
+instead of assuming the deploy was slow.
+
+Both now derive from the request: `req.secure`, or the first value of
+`x-forwarded-proto`, with `app.set('trust proxy', 1)` so Express reads Railway's
+forwarded headers. This cannot silently switch off, and it is correct locally
+over http and in production over https without configuration.
+
+`setSessionCookie` and `clearSessionCookie` therefore take `(req, res)`.
 
 **No Content-Security-Policy.** The forms load Google Fonts and use inline
 styles and scripts, and the portal serves a React bundle. A policy guessed at

@@ -179,18 +179,38 @@ function isAuthed(req) {
   }
 }
 
-function cookieAttributes() {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+/**
+ * Is this request actually over HTTPS?
+ *
+ * This used to read `NODE_ENV === 'production'`, and that silently broke: the
+ * variable stopped being set on the deployed service and the Secure flag
+ * quietly disappeared from the session cookie, meaning it could be sent over
+ * plain http. A security control must not depend on an environment variable
+ * that can go missing without anything failing.
+ *
+ * Railway terminates TLS at its edge and forwards the original scheme, so the
+ * request itself is the honest answer. `trust proxy` is set in server.js, which
+ * is what makes req.secure meaningful behind that proxy.
+ */
+function isHttps(req) {
+  if (!req) return false;
+  if (req.secure) return true;
+  const proto = req.headers && req.headers['x-forwarded-proto'];
+  return typeof proto === 'string' && proto.split(',')[0].trim() === 'https';
+}
+
+function cookieAttributes(req) {
+  const secure = isHttps(req) ? '; Secure' : '';
   return `HttpOnly; SameSite=Lax; Path=/admin; Max-Age=${MAX_AGE_DAYS * 24 * 60 * 60}${secure}`;
 }
 
-function setSessionCookie(res) {
+function setSessionCookie(req, res) {
   if (cachedEpoch === null) throw new Error('session epoch not loaded');
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${makeToken(cachedEpoch)}; ${cookieAttributes()}`);
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${makeToken(cachedEpoch)}; ${cookieAttributes(req)}`);
 }
 
-function clearSessionCookie(res) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+function clearSessionCookie(req, res) {
+  const secure = isHttps(req) ? '; Secure' : '';
   res.setHeader('Set-Cookie',
     `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/admin; Max-Age=0${secure}`);
 }
@@ -201,7 +221,7 @@ function clearSessionCookie(res) {
  */
 function requireAdmin(req, res, next) {
   if (!isAuthed(req)) return res.redirect('/admin/login');
-  try { setSessionCookie(res); } catch { /* never block a page on a reissue */ }
+  try { setSessionCookie(req, res); } catch { /* never block a page on a reissue */ }
   return next();
 }
 
@@ -209,6 +229,6 @@ module.exports = {
   requireAdmin, isAuthed, passwordMatches,
   setSessionCookie, clearSessionCookie,
   initAuth, revokeAllSessions,
-  MAX_AGE_DAYS,
+  MAX_AGE_DAYS, isHttps,
   _test: { tokenIsValid, makeToken, loadEpoch, getCachedEpoch: () => cachedEpoch },
 };

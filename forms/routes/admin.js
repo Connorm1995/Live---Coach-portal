@@ -256,7 +256,7 @@ router.post('/admin/login', express.urlencoded({ extended: false }), (req, res) 
       console.warn(`[admin auth] successful login after ${consecutiveFailures} failed attempt(s)`);
     }
     consecutiveFailures = 0;
-    setSessionCookie(res);
+    setSessionCookie(req, res);
     return res.redirect('/admin');
   }
 
@@ -267,7 +267,7 @@ router.post('/admin/login', express.urlencoded({ extended: false }), (req, res) 
 });
 
 router.get('/admin/logout', (req, res) => {
-  clearSessionCookie(res);
+  clearSessionCookie(req, res);
   res.redirect('/admin/login');
 });
 
@@ -279,7 +279,7 @@ router.post('/admin/logout-everywhere', requireAdmin, async (req, res) => {
   try {
     const epoch = await revokeAllSessions();
     console.warn(`[admin auth] ALL SESSIONS REVOKED - session epoch is now ${epoch}`);
-    clearSessionCookie(res);
+    clearSessionCookie(req, res);
     return res.redirect('/admin/login?revoked=1');
   } catch (err) {
     console.error('[admin logout-everywhere] Error:', err.message);

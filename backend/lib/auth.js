@@ -162,17 +162,34 @@ function isAuthed(req) {
   }
 }
 
-function setSessionCookie(res) {
+/**
+ * Is this request actually over HTTPS?
+ *
+ * This used to read `NODE_ENV === 'production'`, and that silently broke on the
+ * deployed service: the variable stopped being set and the Secure flag quietly
+ * disappeared from the session cookie. A security control must not depend on an
+ * environment variable that can go missing without anything failing. Railway
+ * forwards the original scheme, so the request itself is the honest answer.
+ */
+function isHttps(req) {
+  if (!req) return false;
+  if (req.secure) return true;
+  const proto = req.headers && req.headers['x-forwarded-proto'];
+  return typeof proto === 'string' && proto.split(',')[0].trim() === 'https';
+}
+
+function setSessionCookie(req, res) {
   if (cachedEpoch === null) throw new Error('session epoch not loaded');
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const secure = isHttps(req) ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
     `${COOKIE_NAME}=${makeToken(cachedEpoch)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * MAX_AGE_DAYS}${secure}`
   );
 }
 
-function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+function clearSessionCookie(req, res) {
+  const secure = isHttps(req) ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`);
 }
 
 /**
@@ -245,6 +262,6 @@ module.exports = {
   LOGIN_PAGE,
   initAuth,
   revokeAllSessions,
-  MAX_AGE_DAYS,
+  MAX_AGE_DAYS, isHttps,
   _test: { tokenIsValid, makeToken, loadEpoch, getCachedEpoch: () => cachedEpoch },
 };

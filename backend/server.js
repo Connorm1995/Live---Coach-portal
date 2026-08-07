@@ -16,6 +16,9 @@ const { startScheduler } = require('./lib/scheduler');
 const auth = require('./lib/auth');
 
 const app = express();
+// Railway terminates TLS at its edge, so req.secure and req.ip must come from
+// the forwarded headers rather than the direct socket.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
 // Refuse to start without the auth configuration.
@@ -73,7 +76,10 @@ app.use(express.json());
  * would need a policy written against the real bundle rather than guessed at.
  */
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'production') {
+  // Sent only on real https requests - browsers ignore HSTS over plain http,
+  // and this must not depend on NODE_ENV, which went missing on the deployed
+  // service and silently took the cookie's Secure flag with it.
+  if (auth.isHttps(req)) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
   res.setHeader('X-Frame-Options', 'DENY');
@@ -128,7 +134,7 @@ app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
       console.warn(`[auth] successful login after ${consecutiveLoginFailures} failed attempt(s)`);
     }
     consecutiveLoginFailures = 0;
-    auth.setSessionCookie(res);
+    auth.setSessionCookie(req, res);
     return res.redirect('/');
   }
   consecutiveLoginFailures++;
@@ -139,7 +145,7 @@ app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
 });
 
 app.get('/logout', (req, res) => {
-  auth.clearSessionCookie(res);
+  auth.clearSessionCookie(req, res);
   res.redirect('/login');
 });
 
@@ -152,7 +158,7 @@ app.post('/logout-everywhere', async (req, res) => {
   try {
     const epoch = await auth.revokeAllSessions();
     console.warn(`[auth] ALL PORTAL SESSIONS REVOKED - session epoch is now ${epoch}`);
-    auth.clearSessionCookie(res);
+    auth.clearSessionCookie(req, res);
     return res.redirect('/login?revoked=1');
   } catch (err) {
     console.error('[auth] revoke failed:', err.message);
@@ -166,7 +172,7 @@ app.use((req, res, next) => {
     // Slide the expiry forward on page loads so regular use never expires.
     // Skipped for /api/ calls purely to avoid stamping a Set-Cookie header on
     // every one of the dozen requests a single dashboard view fires off.
-    if (!req.path.startsWith('/api/')) auth.setSessionCookie(res);
+    if (!req.path.startsWith('/api/')) auth.setSessionCookie(req, res);
     return next();
   }
   // API callers get a status they can act on; browsers get the login page.
