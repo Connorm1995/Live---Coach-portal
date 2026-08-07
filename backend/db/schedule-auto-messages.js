@@ -49,7 +49,28 @@ async function recipients(kind) {
      ORDER BY name`,
     [COACH_ID, PROGRAM_FOR_KIND[kind]]
   );
-  return rows;
+  if (kind !== 'eom') return rows;
+  const optOut = new Set(templates.EOM_OPT_OUT);
+  return rows.filter((r) => !optOut.has(r.name));
+}
+
+/**
+ * Swap in any month that does not follow the usual last-Saturday rule.
+ * Returns the adjusted date list plus a date -> body map for the sends whose
+ * copy differs. Order is preserved because an exception only ever moves a
+ * date earlier within its own month.
+ */
+function applyEomExceptions(dates) {
+  const bodyByDate = {};
+  const applied = [];
+  const out = dates.map((date) => {
+    const ex = templates.EOM_EXCEPTIONS[date.slice(0, 7)];
+    if (!ex) return date;
+    bodyByDate[ex.date] = ex.body;
+    applied.push({ from: date, to: ex.date, reason: ex.reason });
+    return ex.date;
+  });
+  return { dates: out, bodyByDate, applied };
 }
 
 async function showStatus() {
@@ -226,9 +247,17 @@ async function run() {
   }
 
   const tpl = kind === 'weekly' ? templates.WEEKLY : templates.EOM;
-  const dates = kind === 'weekly'
+  let dates = kind === 'weekly'
     ? am.nextSundays(tpl.occurrences)
     : am.nextLastSaturdays(tpl.occurrences);
+  let bodyByDate = null;
+  let exceptions = [];
+  if (kind === 'eom') {
+    const adjusted = applyEomExceptions(dates);
+    dates = adjusted.dates;
+    bodyByDate = adjusted.bodyByDate;
+    exceptions = adjusted.applied;
+  }
   const clients = await recipients(kind);
   const batchId = newBatchId(kind);
 
@@ -241,6 +270,12 @@ async function run() {
   console.log(`  occurrences: ${dates.length}  (${dates[0]} to ${dates[dates.length - 1]})`);
   console.log(`  recipients : ${clients.length}`);
   console.log(`  batch id   : ${batchId}`);
+  for (const ex of exceptions) {
+    console.log(`  exception  : ${ex.from} -> ${ex.to}, custom wording (${ex.reason})`);
+  }
+  if (kind === 'eom' && templates.EOM_OPT_OUT.length) {
+    console.log(`  opted out  : ${templates.EOM_OPT_OUT.join(', ')}`);
+  }
   console.log('');
 
   let created = 0;
@@ -254,6 +289,7 @@ async function run() {
         sendTimeMinutes: tpl.sendTimeMinutes,
         title: tpl.title,
         body: tpl.body,
+        bodyByDate,
         kind, batchId, dryRun: !commit,
       });
       if (res.skipped) {

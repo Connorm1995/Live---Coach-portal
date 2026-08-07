@@ -24,6 +24,7 @@
  */
 
 const pool = require('../db/pool');
+const templates = require('./auto-message-templates');
 
 const TRAINERIZE_API = 'https://api.trainerize.com/v03';
 const COACH_ID = 1;
@@ -365,7 +366,9 @@ async function findMissingSchedules() {
      ORDER BY c.name`,
     [COACH_ID]
   );
-  return rows;
+  // Clients who deliberately get no EOM prompt are not "missing" one.
+  const optOut = new Set(templates.EOM_OPT_OUT);
+  return rows.filter((r) => !(r.program === 'my_fit_coach_core' && optOut.has(r.name)));
 }
 
 /**
@@ -374,7 +377,7 @@ async function findMissingSchedules() {
  * Idempotent by design: a client who already has live future messages of this
  * kind is skipped rather than stacked. Pressing run twice cannot double them up.
  */
-async function scheduleForClient({ client, dates, sendTimeMinutes, title, body, kind, batchId, dryRun }) {
+async function scheduleForClient({ client, dates, sendTimeMinutes, title, body, bodyByDate, kind, batchId, dryRun }) {
   if (!client.trainerize_id) {
     return { client: client.name, skipped: 'no trainerize_id', created: 0 };
   }
@@ -403,7 +406,11 @@ async function scheduleForClient({ client, dates, sendTimeMinutes, title, body, 
 
   const ids = [];
   for (const date of dates) {
-    const id = await createOne({ client, date, sendTimeMinutes, title, body, kind, batchId });
+    const id = await createOne({
+      client, date, sendTimeMinutes, title,
+      body: (bodyByDate && bodyByDate[date]) || body,
+      kind, batchId,
+    });
     ids.push(id);
     await sleep(THROTTLE_MS);
   }

@@ -1224,3 +1224,136 @@ node backend/db/backup.js restore <key> --into "<connection string>"
 The scheduler runs a backup daily at 03:00 Dublin. A missing R2 configuration
 logs a warning once a day rather than failing silently, because a backup that
 is quietly not running is worse than one that is loudly broken.
+
+---
+
+## EOM auto messages, and the one-off month exception (August 2026)
+
+### What was scheduled
+
+144 EOM calendar prompts committed on 7 Aug 2026: **12 Core clients x 12 months**,
+Sat 29 Aug 2026 through Sat 31 Jul 2027, 12:00 in each client's own timezone.
+
+Rollback batch id: `eom-2026-08-07T11-12-28-405Z`
+
+Verified by reading back from Trainerize rather than trusting the log: all 12
+December messages plus a random sample of standard ones, checking the date, send
+time, title, the greeting name and the exact copy.
+
+### Months that break the last-Saturday rule
+
+`EOM_EXCEPTIONS` in `lib/auto-message-templates.js` is keyed by the calendar
+month the report covers (`YYYY-MM`). An entry replaces the computed date and the
+body for that one send. Everything else is untouched.
+
+The only entry is **December 2026**. The last Saturday is the 26th, Christmas
+weekend, so the prompt moves a week early to **Sat 19 Dec** with its own copy
+explaining why and giving a Monday 21 Dec deadline.
+
+An exception only ever moves a date *earlier within its own month*, so the run
+stays in order and stays one-per-month. `applyEomExceptions()` in
+`db/schedule-auto-messages.js` prints every swap it makes in both the dry run and
+the commit, so a moved month can never be applied silently.
+
+### The reminder date follows the moved Saturday, the wording does not
+
+**The Monday nudge is not attached to the calendar message.** It is a separate
+mechanism, and its date is worked out by `getEomDeadlineMonday()` in
+`lib/cycle.js`. Left alone that function returns "last Saturday of the month +
+2 days", which for December 2026 is **Monday 28 December** - a week after the
+deadline the moved message states.
+
+So `getEomDeadlineMonday()` now checks `EOM_EXCEPTIONS` first. For an exception
+month it returns that month's actual prompt date plus two days, giving
+**Monday 21 December 2026**.
+
+**The Monday is derived, never configured.** There is no `deadlineMonday` field
+to set, precisely so a future edit cannot move the Saturday and leave the Monday
+behind. Change the exception's `date` and the reminder follows automatically.
+
+**The wording is unchanged.** Connor's call on 7 Aug 2026: the reminder body
+stays constant for every month, only its date moves.
+
+Verified: December 2026 resolves to Mon 21 Dec, it is genuinely a Monday, the
+other eleven months in the batch are byte-identical to before, and replaying the
+scheduler's own month-matching loop across every Monday in December 2026 fires
+exactly once, on the 21st, for cycle `2026-12-01`. Nothing fires on the 28th.
+
+The `cycle_start` is still keyed on the calendar month, so a report submitted any
+time in December counts for December regardless of which Monday the nudge lands
+on, and anyone who has already submitted is excluded by the existing `checkins`
+subquery.
+
+**If you add a future exception, this is now automatic.** `cycle.js` requires
+`auto-message-templates.js`, which is plain data and requires nothing itself, so
+there is no circular import. `forms/lib/cycle.js` does not carry a copy of
+`getEomDeadlineMonday()`, so there is nothing to keep in step on that side.
+
+### Clients who do not do EOM reports
+
+`EOM_OPT_OUT` in the same file lists them by exact `clients.name`. They stay on
+the Core programme and keep everything else, they just get no monthly prompt.
+
+Currently: **Martin Farrell** (his `reminders_enabled` was already false, so he
+gets no nudge either).
+
+A list in code rather than a one-off `--exclude` flag, for two reasons. A re-run
+cannot quietly put him back. And `findMissingSchedules()` reads the same list, so
+`--status` does not report him under "NOTHING SCHEDULED" forever - a safety net
+that cries wolf is one that gets ignored.
+
+Adding someone to the list does **not** remove messages they already have. Use
+`--rollback-client "<name>" eom` for that.
+
+---
+
+## The 1-10 scale buttons running off screen on iPhone (August 2026)
+
+Connor reported the weekly form's 1-10 buttons overflowing the right edge on his
+iPhone 17 Pro, in the WhatsApp in-app browser. Buttons 5 and 10 were cut off and
+`overflow: hidden` on `html, body` meant there was no scroll to reveal them.
+
+**It did not reproduce anywhere.** Chromium and real WebKit (Playwright) were
+both correct at 375, 390, 393, 402 and 430pt against the live page with the web
+font loaded. What cracked it was Connor noticing that changing the iOS system
+text size to anything else - even away and straight back - fixed it until the
+next fresh load.
+
+### The mechanism
+
+He runs a non-default system text size, so iOS inflates text on web pages.
+
+A grid item's automatic minimum size is its content, so a button can never be
+squeezed below what its own contents need. Past a certain font size that minimum
+beats the `1fr` share, every column widens, and the grid overflows its container.
+The `.checkin__scale-labels` row underneath is unaffected, which is why it still
+aligned correctly in the screenshot while the buttons did not - that asymmetry is
+what identified the buttons as the culprit.
+
+The inflation is applied on first layout, before the web font finishes
+downloading. Changing the text size forces a fresh layout, which comes out right.
+Hence "it fixes itself if I poke the setting".
+
+### The fix, both halves needed
+
+1. `-webkit-text-size-adjust: 100%` on `html` opts out of the inflation. This is
+   the cause-level fix. It is iOS-only behaviour: desktop WebKit does not
+   implement the property at all and drops the declaration, so it cannot be
+   verified outside iOS. Chromium confirms it parses and applies.
+2. `minmax(0, 1fr)` on the tracks plus `min-width: 0` on the buttons removes the
+   automatic minimum, so the grid **cannot** overflow at any font size. This is
+   the backstop, and it is the half that is provable here.
+
+**Do not drop either half.** Half 1 alone leaves the failure mode in place for
+any other cause of inflation. Half 2 alone leaves the digits oversized.
+
+Verified on WebKit against the edited file at 375/390/393/402/430pt and desktop,
+at normal size and at 24, 36, 48, 64 and 90px button text: no overflow anywhere,
+and no horizontal document scroll. Before the fix the same test overflows.
+
+**Accessibility trade-off, Connor's call on 7 Aug 2026:** a client who has raised
+their system text size will now see this form at its designed size rather than an
+inflated one. The form already uses large type and is one question per screen.
+
+`/checkin`, `/monthly` and `/join` all serve this same `checkin.html`, so the fix
+covers all three forms.

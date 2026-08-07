@@ -11,6 +11,10 @@
  *   - Anchored to the 1st of the current month (unchanged)
  */
 
+// Safe to require here: auto-message-templates is plain data and requires
+// nothing itself, so this cannot create a circular import.
+const { EOM_EXCEPTIONS } = require('./auto-message-templates');
+
 // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
 const CUTOFF_DAY = 4; // Thursday
 
@@ -52,11 +56,28 @@ function isCycleClosed() {
  * The EOM report opens on the last Saturday of the month.
  * The deadline is the following Monday (which may fall in the next month).
  *
+ * A month listed in EOM_EXCEPTIONS does not use the last Saturday - its prompt
+ * was deliberately moved (e.g. December 2026, a week early for Christmas). The
+ * deadline Monday moves with it, staying two days after whatever Saturday that
+ * month's prompt actually goes out on. It is derived rather than configured
+ * separately so the two can never drift apart.
+ *
  * @param {number} year - Full year (e.g. 2026)
  * @param {number} month - 1-based month (1=Jan, 12=Dec)
  * @returns {{ year: number, month: number, day: number }} The deadline Monday
  */
 function getEomDeadlineMonday(year, month) {
+  const exception = EOM_EXCEPTIONS[`${year}-${String(month).padStart(2, '0')}`];
+  if (exception) {
+    const moved = new Date(`${exception.date}T00:00:00Z`);
+    moved.setUTCDate(moved.getUTCDate() + 2);
+    return {
+      year: moved.getUTCFullYear(),
+      month: moved.getUTCMonth() + 1,
+      day: moved.getUTCDate(),
+    };
+  }
+
   // Last day of the given month (day 0 of the next month = last day of this month)
   const lastDay = new Date(Date.UTC(year, month, 0));
   const dow = lastDay.getUTCDay(); // 0=Sun..6=Sat

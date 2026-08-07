@@ -23,6 +23,16 @@
     --color-amber: #f59e0b;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* iOS inflates text on web pages when the system text size is raised. This
+     page sets its own sizes deliberately and they are already generous, and the
+     inflation was pushing the 1-10 scale buttons off the right of the screen on
+     first load (before the web font finished downloading - changing the text
+     size, which forces a fresh layout, made it correct again). Opting out here
+     is the cause-level fix; min-width: 0 on the buttons below is the backstop. */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   html, body {
     height: 100%;
     font-family: 'Roboto Slab', serif;
@@ -83,10 +93,15 @@
     white-space: pre-line; /* hints may carry deliberate line breaks */
   }
   .checkin__scale {
-    display: grid; grid-template-columns: repeat(10, 1fr);
+    display: grid; grid-template-columns: repeat(10, minmax(0, 1fr));
     gap: 8px; margin-bottom: 12px;
   }
   .checkin__scale-btn {
+    /* minmax(0, 1fr) above and min-width: 0 here together stop a button's own
+       contents from claiming more than its share of the row. Without both, a
+       large enough font makes every column wider than the track and the whole
+       grid overflows the screen. Do not drop either. */
+    min-width: 0;
     aspect-ratio: 1 / 1.15;
     border: 1px solid var(--color-border); border-radius: 10px;
     background: rgba(92, 214, 200, 0.1);
@@ -270,7 +285,7 @@
     .checkin__viewport { padding: 0 24px; }
     .checkin__question { font-size: 22px; }
     .checkin__welcome-title, .checkin__end-title { font-size: 26px; }
-    .checkin__scale { grid-template-columns: repeat(5, 1fr); }
+    .checkin__scale { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   }
 </style>
 </head>
