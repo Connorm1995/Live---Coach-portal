@@ -88,18 +88,72 @@ app.get('/login', (req, res) => {
     .send(auth.LOGIN_PAGE(req.query.failed === '1'));
 });
 
+/**
+ * Security headers.
+ *
+ *  HSTS   forces https for a year. Without it, typing the bare address once
+ *         over http leaves that first request interceptable.
+ *  frame  the dashboard holds every client's personal and health data - never
+ *         allow another site to frame it (clickjacking).
+ *  nosniff  stop the browser second-guessing content types.
+ *  referrer  do not leak dashboard URLs to third parties.
+ *
+ * No Content-Security-Policy yet: the React build and its inline bootstrap
+ * would need a policy written against the real bundle rather than guessed at.
+ */
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// The delay grows with consecutive failures and is capped, so a burst of
+// guessing becomes slow while a genuine typo costs a second. Failures are also
+// logged: previously nothing recorded that anyone had tried.
+const LOGIN_FAIL_DELAY_MS = 1000;
+const LOGIN_FAIL_DELAY_MAX_MS = 15000;
+let consecutiveLoginFailures = 0;
+
 app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
   if (auth.passwordMatches((req.body || {}).password || '')) {
+    if (consecutiveLoginFailures > 0) {
+      console.warn(`[auth] successful login after ${consecutiveLoginFailures} failed attempt(s)`);
+    }
+    consecutiveLoginFailures = 0;
     auth.setSessionCookie(res);
     return res.redirect('/');
   }
-  // Blanket delay on failure - makes guessing slow without needing rate limiting.
-  return setTimeout(() => res.redirect('/login?failed=1'), 1000);
+  consecutiveLoginFailures++;
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  console.warn(`[auth] FAILED login attempt #${consecutiveLoginFailures} from ${ip}`);
+  const delay = Math.min(LOGIN_FAIL_DELAY_MS * consecutiveLoginFailures, LOGIN_FAIL_DELAY_MAX_MS);
+  return setTimeout(() => res.redirect('/login?failed=1'), delay);
 });
 
 app.get('/logout', (req, res) => {
   auth.clearSessionCookie(res);
   res.redirect('/login');
+});
+
+/**
+ * Log out every device, everywhere, immediately - including anyone holding a
+ * stolen session cookie. Bumps the epoch every issued token is signed against.
+ */
+app.post('/logout-everywhere', async (req, res) => {
+  if (!auth.isAuthed(req)) return res.redirect('/login');
+  try {
+    const epoch = await auth.revokeAllSessions();
+    console.warn(`[auth] ALL PORTAL SESSIONS REVOKED - session epoch is now ${epoch}`);
+    auth.clearSessionCookie(res);
+    return res.redirect('/login?revoked=1');
+  } catch (err) {
+    console.error('[auth] revoke failed:', err.message);
+    return res.status(500).send('Could not log out other devices. Try again.');
+  }
 });
 
 app.use((req, res, next) => {
@@ -140,7 +194,20 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(buildPath, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  startScheduler();
-});
+// Sessions cannot be validated until the revocation epoch is loaded, and auth
+// fails closed until it is. Load it before accepting traffic so the first
+// request after a deploy is never wrongly rejected. Fatal on failure for the
+// same reason the credential check above is: a failed deploy beats a lockout.
+auth.initAuth()
+  .then((epoch) => {
+    console.log(`[auth] session epoch ${epoch} loaded`);
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      startScheduler();
+    });
+  })
+  .catch((err) => {
+    console.error('\nFATAL: could not load the session epoch:', err.message);
+    console.error('Refusing to start - auth would reject every login.\n');
+    process.exit(1);
+  });

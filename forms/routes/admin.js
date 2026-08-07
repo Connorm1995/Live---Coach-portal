@@ -23,6 +23,7 @@ const {
   passwordMatches,
   setSessionCookie,
   clearSessionCookie,
+  revokeAllSessions,
 } = require('../lib/auth');
 
 const router = express.Router();
@@ -188,6 +189,13 @@ function topbar(active, unmatchedCount) {
     ${link('/admin/unmatched', 'Unmatched', 'unmatched')}${badge}
     ${link('/admin/archive', 'Archive', 'archive')}
     <a href="/admin/logout">Log out</a>
+    <form method="POST" action="/admin/logout-everywhere" style="margin-left:16px"
+          onsubmit="return confirm('Log out every device everywhere, including this one?\\n\\nUse this if you think someone else may have access. Everyone, including you, will need the password again.')">
+      <button type="submit" title="Log out every device, everywhere"
+              style="background:none;border:none;color:#9aa3a7;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;padding:0">
+        Log out everywhere
+      </button>
+    </form>
   </div>`;
 }
 
@@ -210,10 +218,12 @@ async function pendingUnmatchedCount() {
 router.get('/admin/login', (req, res) => {
   if (isAuthed(req)) return res.redirect('/admin');
   const failed = req.query.failed === '1';
+  const revoked = req.query.revoked === '1';
   res.send(page('Log in', `
     <div class="login-card">
       <h1>MyFitCoach Forms</h1>
       ${failed ? '<div class="error">Wrong password - try again.</div>' : ''}
+      ${revoked ? '<div class="error" style="background:rgba(34,197,94,0.12);border-color:rgba(34,197,94,0.45);color:#15803d">All devices have been logged out. Log in again below.</div>' : ''}
       <form method="POST" action="/admin/login">
         <input type="password" name="password" placeholder="Password" autofocus required />
         <button class="btn" type="submit">Log in</button>
@@ -221,17 +231,60 @@ router.get('/admin/login', (req, res) => {
     </div>`));
 });
 
+/**
+ * Failed logins are slowed and counted.
+ *
+ * Before this, 12 wrong passwords went through in 2 seconds with no delay, no
+ * lockout and no record. The password is long enough that guessing it was never
+ * realistic, but there was no way to know anyone had tried.
+ *
+ * The delay grows with consecutive failures and is capped, so a burst of
+ * guessing becomes slow while a genuine typo costs a second. Held in memory on
+ * purpose: it protects against a burst, and a restart clearing it is fine.
+ */
+const LOGIN_FAIL_DELAY_MS = 1000;
+const LOGIN_FAIL_DELAY_MAX_MS = 15000;
+let consecutiveFailures = 0;
+
+function failureDelay() {
+  return Math.min(LOGIN_FAIL_DELAY_MS * consecutiveFailures, LOGIN_FAIL_DELAY_MAX_MS);
+}
+
 router.post('/admin/login', express.urlencoded({ extended: false }), (req, res) => {
   if (passwordMatches((req.body || {}).password || '')) {
+    if (consecutiveFailures > 0) {
+      console.warn(`[admin auth] successful login after ${consecutiveFailures} failed attempt(s)`);
+    }
+    consecutiveFailures = 0;
     setSessionCookie(res);
     return res.redirect('/admin');
   }
-  return res.redirect('/admin/login?failed=1');
+
+  consecutiveFailures++;
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  console.warn(`[admin auth] FAILED login attempt #${consecutiveFailures} from ${ip}`);
+  return setTimeout(() => res.redirect('/admin/login?failed=1'), failureDelay());
 });
 
 router.get('/admin/logout', (req, res) => {
   clearSessionCookie(res);
   res.redirect('/admin/login');
+});
+
+/**
+ * Log out every device, everywhere, immediately - including anyone holding a
+ * stolen session cookie. Bumps the epoch every issued token is signed against.
+ */
+router.post('/admin/logout-everywhere', requireAdmin, async (req, res) => {
+  try {
+    const epoch = await revokeAllSessions();
+    console.warn(`[admin auth] ALL SESSIONS REVOKED - session epoch is now ${epoch}`);
+    clearSessionCookie(res);
+    return res.redirect('/admin/login?revoked=1');
+  } catch (err) {
+    console.error('[admin logout-everywhere] Error:', err.message);
+    return res.status(500).send(page('Error', '<div class="wrap"><h1>Could not log out other devices</h1><p style="margin-top:12px"><a href="/admin">Back</a></p></div>'));
+  }
 });
 
 // ---- Responses list ----

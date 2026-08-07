@@ -512,6 +512,25 @@ async function migrate() {
       ON auto_messages (batch_id);
     `);
 
+    // ---- Session revocation (Aug 2026) ----
+    //
+    // One row per application ('portal', 'forms'). Every session token carries
+    // the epoch it was signed with, so incrementing this value invalidates every
+    // token ever issued for that app - the "log out everywhere" kill switch.
+    //
+    // Created identically by forms/db/migrate.js. Both apps share one database
+    // but no code, so whichever migration runs first wins and the other is a
+    // no-op. Keep the two definitions the same.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS auth_epochs (
+        coach_id INTEGER NOT NULL,
+        app VARCHAR NOT NULL,
+        epoch INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (coach_id, app)
+      );
+    `);
+
     await client.query('COMMIT');
     console.log('Migration complete.');
   } catch (err) {

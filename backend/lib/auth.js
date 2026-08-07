@@ -5,15 +5,29 @@
  * served every client's name, email, phone number, body stats and check-in
  * answers to anyone who knew the address. This closes that.
  *
- * Mirrors the pattern already proven in forms/lib/auth.js: login compares
- * against PORTAL_ADMIN_PASSWORD, and success sets an httpOnly cookie whose
- * value is an HMAC of PORTAL_SESSION_SECRET. Stateless, survives restarts, and
- * every session is invalidated by rotating the secret.
+ * Login compares against PORTAL_ADMIN_PASSWORD and success sets an httpOnly
+ * cookie holding a SIGNED, EXPIRING session token.
+ *
+ * The cookie used to be HMAC(secret, 'mfc-portal-v1') - a constant. Every login
+ * produced the identical value forever, so it never expired server-side,
+ * "Log out" locked nobody out, and a single leak meant permanent unrevokable
+ * access with no action available in the app to close it.
+ *
+ * Tokens are now `v2.<issuedAt>.<epoch>.<hmac>`. issuedAt is checked against
+ * MAX_AGE_DAYS on every request, and epoch is the current value in auth_epochs
+ * - bumping it invalidates every token ever issued, which is the "log out
+ * everywhere" kill switch. Old v1 tokens no longer parse, so the one visible
+ * effect of the upgrade is having to log in once more.
+ *
+ * Deliberately duplicated in forms/lib/auth.js rather than shared, because
+ * MyFitCoach Forms has no code dependency on the Coach Portal. If the token
+ * format changes, change both.
  *
  * Both values live in .env and are never committed.
  */
 
 const crypto = require('crypto');
+const pool = require('../db/pool');
 
 const COOKIE_NAME = 'mfc_portal';
 // Sliding window: the cookie is reissued on each page load, so the clock runs
@@ -21,10 +35,97 @@ const COOKIE_NAME = 'mfc_portal';
 // never asked again; a device left untouched for a month falls out.
 const MAX_AGE_DAYS = 30;
 
-function sessionValue() {
-  const secret = process.env.PORTAL_SESSION_SECRET;
-  if (!secret) throw new Error('PORTAL_SESSION_SECRET is not set');
-  return crypto.createHmac('sha256', secret).update('mfc-portal-v1').digest('hex');
+const MAX_AGE_MS = MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
+const EPOCH_REFRESH_MS = 15 * 1000;
+const APP = 'portal';
+const COACH_ID = 1;
+
+// null means "never successfully loaded". Auth FAILS CLOSED in that state: the
+// portal cannot render anything without the database anyway, so refusing to
+// authenticate costs nothing real and avoids honouring a revoked token while
+// the database is unreachable.
+let cachedEpoch = null;
+
+function secret() {
+  const s = process.env.PORTAL_SESSION_SECRET;
+  if (!s) throw new Error('PORTAL_SESSION_SECRET is not set');
+  return s;
+}
+
+async function loadEpoch() {
+  const { rows } = await pool.query(
+    `INSERT INTO auth_epochs (coach_id, app, epoch) VALUES ($1, $2, 0)
+     ON CONFLICT (coach_id, app) DO UPDATE SET app = EXCLUDED.app
+     RETURNING epoch`,
+    [COACH_ID, APP]
+  );
+  cachedEpoch = rows[0].epoch;
+  return cachedEpoch;
+}
+
+/** Load the epoch now and keep it fresh. Call once at startup. */
+async function initAuth() {
+  await loadEpoch();
+  const timer = setInterval(() => {
+    loadEpoch().catch((err) =>
+      console.warn('[auth] could not refresh session epoch:', err.message));
+  }, EPOCH_REFRESH_MS);
+  if (timer.unref) timer.unref();
+  return cachedEpoch;
+}
+
+/** Invalidate every session on every device immediately. */
+async function revokeAllSessions() {
+  const { rows } = await pool.query(
+    `INSERT INTO auth_epochs (coach_id, app, epoch, updated_at)
+     VALUES ($1, $2, 1, now())
+     ON CONFLICT (coach_id, app)
+     DO UPDATE SET epoch = auth_epochs.epoch + 1, updated_at = now()
+     RETURNING epoch`,
+    [COACH_ID, APP]
+  );
+  cachedEpoch = rows[0].epoch;
+  return cachedEpoch;
+}
+
+function sign(payload) {
+  return crypto.createHmac('sha256', secret()).update(payload).digest('hex');
+}
+
+function makeToken(epoch) {
+  const payload = `v2.${Date.now()}.${epoch}`;
+  return `${payload}.${sign(payload)}`;
+}
+
+/** Verify a token. True only if signature, age and epoch all hold. */
+function tokenIsValid(token) {
+  if (typeof token !== 'string') return false;
+  const parts = token.split('.');
+  if (parts.length !== 4) return false;
+  const [version, issuedAtRaw, epochRaw, mac] = parts;
+  if (version !== 'v2') return false;
+
+  let expectedMac;
+  try {
+    expectedMac = sign(`${version}.${issuedAtRaw}.${epochRaw}`);
+  } catch {
+    return false;
+  }
+  // Signature first: nothing else in the token is trustworthy until it holds.
+  if (mac.length !== expectedMac.length) return false;
+  if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expectedMac))) return false;
+
+  const issuedAt = Number(issuedAtRaw);
+  if (!Number.isFinite(issuedAt)) return false;
+  const age = Date.now() - issuedAt;
+  if (age > MAX_AGE_MS) return false;
+  if (age < -FUTURE_SKEW_MS) return false;
+
+  if (cachedEpoch === null) return false; // fail closed
+  if (Number(epochRaw) !== cachedEpoch) return false;
+
+  return true;
 }
 
 /**
@@ -55,21 +156,18 @@ function parseCookies(req) {
 
 function isAuthed(req) {
   try {
-    const supplied = parseCookies(req)[COOKIE_NAME];
-    if (!supplied) return false;
-    const expected = sessionValue();
-    if (supplied.length !== expected.length) return false;
-    return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+    return tokenIsValid(parseCookies(req)[COOKIE_NAME]);
   } catch {
     return false;
   }
 }
 
 function setSessionCookie(res) {
+  if (cachedEpoch === null) throw new Error('session epoch not loaded');
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
-    `${COOKIE_NAME}=${sessionValue()}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * MAX_AGE_DAYS}${secure}`
+    `${COOKIE_NAME}=${makeToken(cachedEpoch)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * MAX_AGE_DAYS}${secure}`
   );
 }
 
@@ -145,4 +243,8 @@ module.exports = {
   clearSessionCookie,
   isPublicPath,
   LOGIN_PAGE,
+  initAuth,
+  revokeAllSessions,
+  MAX_AGE_DAYS,
+  _test: { tokenIsValid, makeToken, loadEpoch, getCachedEpoch: () => cachedEpoch },
 };

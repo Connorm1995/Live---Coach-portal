@@ -1492,3 +1492,96 @@ present, confirming nothing was flattened away.
 `/admin/archive` in MyFitCoach Forms - a searchable list by name or email
 (300 most recent shown, search narrows), and a detail page rendering the form as
 it was asked. Read only: there is no edit or delete path by design.
+
+---
+
+## Admin session security (August 2026)
+
+Connor asked whether MyFitCoach Forms was properly secured. The audit found it
+password protected on every route, with a 16-character password, a 64-character
+session secret, timing-safe comparison, and correct cookie flags on the live
+site (HttpOnly, SameSite=Lax, Secure). Three real gaps sat behind that.
+
+### The session key was a permanent skeleton key
+
+**The worst of the three.** The cookie value was `HMAC(secret, 'mfc-forms-admin-v1')`
+- a constant. Verified by logging in twice and getting byte-identical values.
+
+So it never expired server-side (`Max-Age` is only a hint the browser is free to
+ignore, and an attacker ignores it entirely), "Log out" cleared one browser and
+locked nobody out, and a single leak - an old laptop, a sold phone, browser sync
+into a compromised account - was permanent unrevokable access to 331 people's
+health data with no action available in the app to close it.
+
+The Coach Portal had the identical flaw, so both were fixed.
+
+Tokens are now `v2.<issuedAt>.<epoch>.<hmac>`:
+
+- **issuedAt** is checked against 30 days on every request, so expiry is
+  enforced by us rather than by the browser's good manners. The cookie is
+  reissued on each authenticated page load, so the clock runs from **last use**:
+  regular use never logs you out, a device untouched for 30 days falls out.
+- **epoch** comes from `auth_epochs`, one row per app. Incrementing it
+  invalidates every token ever issued - the "log out everywhere" kill switch,
+  at `POST /admin/logout-everywhere` (portal: `POST /logout-everywhere`).
+- **hmac** covers the other three parts, so none can be edited.
+
+Old v1 constant tokens no longer parse and are dead on deploy. The only visible
+effect is having to log in once more.
+
+**Auth fails closed until the epoch is loaded.** Both servers load it before
+accepting traffic and exit if they cannot, matching the existing rule that a
+failed deploy beats a lockout. Neither app can render anything useful without
+the database anyway, so failing closed costs nothing and avoids honouring a
+revoked token while the database is unreachable. The epoch is cached in memory
+and refreshed every 15s; revoking updates the cache in the same call, so it is
+immediate on a single instance.
+
+`auth_epochs` is created identically by both migrations. Whichever runs first
+wins, the other is a no-op. Keep the two definitions the same.
+
+### Guessing the password was free and silent
+
+12 wrong passwords went through in 2 seconds: no delay, no lockout, no record.
+The password is long enough that guessing was never realistic, but nothing would
+have told Connor anyone had tried.
+
+Failures now carry an escalating delay (1s per consecutive failure, capped at
+15s) and are logged with the source IP, as is a success that follows failures.
+Held in memory deliberately - it defends against a burst, and a restart clearing
+it is fine.
+
+The Coach Portal already had a flat 1s delay and no logging; it now matches.
+
+### MyFitCoach Forms leaked the password's length
+
+Its `passwordMatches` compared plaintext, needing an early length check before
+`timingSafeEqual`, which leaks the real password's length by timing. The portal
+had already fixed exactly this by hashing both sides to a fixed length first.
+The forms app now does the same.
+
+### Security headers
+
+HSTS (production only), `X-Frame-Options: DENY`, `X-Content-Type-Options:
+nosniff` and `Referrer-Policy` on both apps.
+
+**No Content-Security-Policy.** The forms load Google Fonts and use inline
+styles and scripts, and the portal serves a React bundle. A policy guessed at
+rather than written against the real assets would break them silently. Worth
+doing deliberately later.
+
+### Verified
+
+41 behavioural checks across both apps: tampering with the timestamp, epoch or
+signature is rejected; the old constant token is rejected; an over-age token and
+a future-dated token are rejected; a token valid a moment earlier is dead after
+revoking, and a new one works. Then end to end against both running servers:
+protected pages redirect when logged out, `/health` and `/webhooks/*` stay
+public (gating them would fail every deploy and break Trainerize), the delay
+escalates 1s/2s/3s, the kill switch locks a live cookie out, logging back in
+works, and revoking one app does not touch the other.
+
+### Not done
+
+Two-factor authentication. Worth revisiting, but the four fixes above close the
+gaps that actually existed.

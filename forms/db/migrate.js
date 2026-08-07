@@ -188,8 +188,27 @@ async function migrate() {
       ON onboarding_archive (coach_id, lower(email));
     `);
 
+    // ---- Session revocation (Aug 2026) ----
+    //
+    // One row per application. Every session token carries the epoch it was
+    // signed with, so incrementing this value invalidates every token ever
+    // issued for that app - the "log out everywhere" kill switch.
+    //
+    // Created identically by backend/db/migrate.js. Both apps share one
+    // database but no code, so whichever migration runs first wins and the
+    // other is a no-op. Keep the two definitions the same.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS auth_epochs (
+        coach_id INTEGER NOT NULL,
+        app VARCHAR NOT NULL,
+        epoch INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (coach_id, app)
+      );
+    `);
+
     await client.query('COMMIT');
-    console.log('MyFitCoach Forms migrations complete: form_links, form_drafts (uuid-keyed), onboarding_drafts, onboarding_submissions, unmatched_submissions, onboarding_archive');
+    console.log('MyFitCoach Forms migrations complete: form_links, form_drafts (uuid-keyed), onboarding_drafts, onboarding_submissions, unmatched_submissions, onboarding_archive, auth_epochs');
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
