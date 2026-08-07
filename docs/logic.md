@@ -1357,3 +1357,81 @@ inflated one. The form already uses large type and is one question per screen.
 
 `/checkin`, `/monthly` and `/join` all serve this same `checkin.html`, so the fix
 covers all three forms.
+
+---
+
+## Readability of the check-in form (August 2026)
+
+Connor reported eye strain reading the form, and noted most of his clients are
+older than him with weaker eyesight.
+
+### Contrast was never the problem
+
+**Every element already passed WCAG AAA**, the strictest tier, before any change.
+That is exactly why this went unnoticed. The strain came from three things the
+standard does not measure:
+
+**1. Too much contrast.** Pure `#ffffff` on pure `#000000` is 21:1, the maximum
+possible. That causes halation: light text blooms into the dark background.
+Astigmatism makes it markedly worse, and astigmatism is common with age. WCAG
+sets a floor and no ceiling, so maximum contrast scores perfectly while being
+genuinely uncomfortable to read. Now off-white `#E8EEED` on near-black `#0E1413`,
+15.85:1 - still more than double the 7.0 AAA requirement, without the glare.
+
+**2. Saturated colour used for reading.** Teal was the colour of the 1-10
+numerals, every answer option, and the client's own typed answers. The eye cannot
+bring cyan and a dark background into focus at the same depth (chromatic
+aberration), so edges shimmer. **Teal is now accent only** - borders, fills, the
+brand, the progress bar, icons, short labels. Anything read or typed is neutral.
+
+**3. Thin strokes.** Typed answers were `font-weight: 300` in that saturated
+teal, the worst of the three combined. **Nothing readable is below weight 400.**
+
+Sizes were raised throughout; nothing a client reads is below 13px, and the
+numerals went 18px/500 to 22px/600. Negative letter-spacing on headings was
+softened from -0.02em to -0.005em.
+
+### Two consequences that needed handling
+
+**Text scaling was re-enabled.** `-webkit-text-size-adjust: 100%` was added days
+earlier to stop iOS inflation pushing the scale buttons off screen. For this
+audience, blocking a client's own text-size setting is the wrong trade. It was
+removed. This is only safe because `minmax(0, 1fr)` + `min-width: 0` make the
+overflow structurally impossible - that is the fix that matters. **Do not
+reintroduce text-size-adjust.**
+
+**The page had to become scrollable.** Bigger text means a long question can
+exceed the screen, and `overflow: hidden` would have stranded it.
+
+The first attempt at this was wrong and worth recording: `html, body` kept
+`height: 100%` and gained `overflow-y: auto`. That makes **body**, not the
+document, the scroller, and the page reported no scrollable height at all - a
+1392px step in an 852px screen was unreachable. The fix is to stop pinning the
+page to one screen: `min-height: 100%` on `html, body`, `min-height: 100svh` on
+the viewport, and `margin: auto 0` on the active step. Auto margins centre it
+while still allowing downward overflow; `align-items: center` clips the top
+instead.
+
+### The answer box now grows
+
+`.checkin__textarea` was a fixed 96px box with no auto-grow, so a long answer was
+clipped mid-line and clients could not read back what they had written. It now
+grows with its content.
+
+`height` must include the 2px bottom border (`box-sizing: border-box`), or the
+last line is clipped by exactly that much - measured, not theorised.
+`overflow-y: hidden` keeps `scrollHeight` an honest measure and prevents an inner
+scrollbar.
+
+### Verified
+
+No horizontal overflow at 375/390/393/402/430pt and desktop, at normal text and
+at 32, 48 and 72px forced inflation. A too-tall step keeps its top visible and
+the page scrolls. Textarea grows from 128px to fit any length with nothing
+clipped and no inner scrollbar. Every element still AAA.
+
+### Known, not addressed
+
+A textarea answer is only written to the draft on Enter or the OK button, not as
+the client types, unlike the single-line input which saves on every keystroke.
+Left alone as it is a behaviour change rather than a readability one.

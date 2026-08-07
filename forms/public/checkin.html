@@ -11,34 +11,52 @@
 <style>
   /* Dark Typeform-style theme. Variable names keep their portal meanings
      but are inverted for dark: --color-black = text, --color-white = background. */
+  /* Readability pass, Aug 2026. Every element already passed WCAG AAA before
+     this, so contrast was never the problem. Three things the standard does not
+     measure were causing the eye strain, and all three are fixed here:
+
+     1. TOO MUCH contrast. Pure #fff on pure #000 is 21:1, the maximum possible,
+        and it causes halation - the light text blooms into the dark background.
+        Astigmatism makes it markedly worse and astigmatism is common with age.
+        WCAG sets a floor, not a ceiling, so this scored perfectly while being
+        genuinely uncomfortable. Softened to off-white on near-black (~16:1).
+     2. SATURATED COLOUR FOR READING. Teal was used for the 1-10 numerals, every
+        answer option, and the client's own typed answers. The eye cannot focus
+        cyan and a dark background at the same depth (chromatic aberration), so
+        edges shimmer. Teal is now accent only: borders, fills, the brand, the
+        progress bar. Anything you read or type is neutral.
+     3. THIN STROKES. Typed answers were weight 300 in that saturated teal, the
+        worst combination of the three. Nothing you read is below weight 400. */
   :root {
-    --color-black: #ffffff;
-    --color-slate: rgba(255, 255, 255, 0.84);
-    --color-teal: #5CD6C8;
+    --color-black: #E8EEED;   /* primary text - off-white, not pure white */
+    --color-slate: #B4C0BE;   /* secondary text - solid, so contrast is predictable */
+    --color-teal: #5CD6C8;    /* ACCENT ONLY - never body text or typed input */
     --color-teal-bright: #7ce3d7;
-    --color-white: #000000;
+    --color-white: #0E1413;   /* background - near-black, not pure black */
     --color-off-white: #1b2624;
     --color-border: rgba(92, 214, 200, 0.5);
     --color-red: #ef4444;
     --color-amber: #f59e0b;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  /* iOS inflates text on web pages when the system text size is raised. This
-     page sets its own sizes deliberately and they are already generous, and the
-     inflation was pushing the 1-10 scale buttons off the right of the screen on
-     first load (before the web font finished downloading - changing the text
-     size, which forces a fresh layout, made it correct again). Opting out here
-     is the cause-level fix; min-width: 0 on the buttons below is the backstop. */
-  html {
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-  }
+  /* iOS inflates page text when the client has raised their system text size.
+     That inflation used to push the 1-10 buttons off screen, and the first fix
+     was to opt out of it with text-size-adjust: 100%. That has been REMOVED
+     deliberately: these clients are largely older with weaker eyesight, and
+     blocking their own text-size setting is the wrong trade for them.
+     It is safe to allow because minmax(0, 1fr) + min-width: 0 on the scale
+     buttons make the overflow structurally impossible at any font size - that
+     is the fix that actually matters. Do not reintroduce text-size-adjust. */
   html, body {
-    height: 100%;
+    /* NOT height: 100% with overflow-y: auto. That pins the page to exactly one
+       screen and makes body rather than the document the scroller, which strands
+       anything taller than the screen. Letting the document flow normally is
+       what allows a long question at a large text size to be scrolled to. */
+    min-height: 100%;
     font-family: 'Roboto Slab', serif;
     background: var(--color-white);
     color: var(--color-black);
-    overflow: hidden;
+    overflow-x: hidden; /* horizontal only - vertical must stay available */
   }
   .checkin__progress {
     position: fixed; top: 0; left: 0; right: 0; height: 4px;
@@ -57,15 +75,22 @@
   .checkin__brand span { color: var(--color-teal); }
   .checkin__save-status {
     position: fixed; top: 20px; right: 24px;
-    font-size: 12px; color: var(--color-slate); z-index: 10;
+    font-size: 13px; color: var(--color-slate); z-index: 10;
     opacity: 0; transition: opacity 300ms ease;
   }
   .checkin__save-status--visible { opacity: 1; }
   .checkin__save-status--error { color: var(--color-amber); }
   .checkin__viewport {
-    height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    padding: 0 40px;
+    /* min-height, not height: with larger text the step can be taller than the
+       screen and the page must be able to grow. position: relative contains the
+       briefly-overlapping outgoing step so it cannot add phantom scroll. */
+    /* svh is the viewport with the browser's own bars showing, so the step is
+       never centred partly behind them on a phone. vh first as a fallback. */
+    min-height: 100vh;
+    min-height: 100svh;
+    position: relative;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 32px 40px;
   }
   .checkin__step {
     max-width: 640px; width: 100%;
@@ -76,20 +101,23 @@
   .checkin__step--active {
     opacity: 1; transform: translateY(0);
     position: relative; pointer-events: auto;
+    /* auto margins centre it while still allowing it to overflow downwards.
+       align-items: center would clip the top of a too-tall step instead. */
+    margin: auto 0;
   }
   .checkin__step--leaving-up { opacity: 0; transform: translateY(-28px); }
   .checkin__question-number {
-    font-size: 14px; color: var(--color-teal); font-weight: 500;
+    font-size: 15px; color: var(--color-teal); font-weight: 600;
     margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
   }
   .checkin__question-number svg { width: 12px; height: 12px; }
   .checkin__question {
-    font-size: 28px; font-weight: 600; line-height: 1.25;
-    letter-spacing: -0.02em; margin-bottom: 12px;
+    font-size: 28px; font-weight: 600; line-height: 1.32;
+    letter-spacing: -0.005em; margin-bottom: 12px;
   }
   .checkin__hint {
-    font-size: 15px; color: var(--color-slate);
-    margin-bottom: 32px; line-height: 1.5;
+    font-size: 17px; color: var(--color-slate);
+    margin-bottom: 32px; line-height: 1.6;
     white-space: pre-line; /* hints may carry deliberate line breaks */
   }
   .checkin__scale {
@@ -105,8 +133,11 @@
     aspect-ratio: 1 / 1.15;
     border: 1px solid var(--color-border); border-radius: 10px;
     background: rgba(92, 214, 200, 0.1);
-    font-family: 'Roboto Slab', serif; font-size: 18px; font-weight: 500;
-    color: var(--color-teal); cursor: pointer;
+    /* Numerals were 18px/500 in teal. Connor reported straining on the numbers
+       specifically: small, thin, and cyan on a dark tinted fill. Now neutral,
+       larger and heavier. The teal border and fill keep the look. */
+    font-family: 'Roboto Slab', serif; font-size: 22px; font-weight: 600;
+    color: var(--color-black); cursor: pointer;
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
   }
   .checkin__scale-btn:hover { border-color: var(--color-teal); background: rgba(92, 214, 200, 0.12); }
@@ -116,33 +147,34 @@
   .checkin__scale-btn:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; }
   .checkin__scale-labels {
     display: flex; justify-content: space-between;
-    font-size: 13px; color: var(--color-slate); margin-bottom: 24px;
+    font-size: 15px; color: var(--color-slate); margin-bottom: 24px;
   }
   .checkin__scale-label-mid { text-align: center; }
   .checkin__choices--multi { max-height: 52vh; overflow-y: auto; padding-right: 4px; }
   .checkin__section-heading {
-    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
     color: var(--color-slate); font-weight: 600;
     margin: 16px 0 4px;
   }
   .checkin__other-input {
     width: 100%;
     border: none; border-bottom: 2px solid var(--color-border);
-    font-family: 'Roboto Slab', serif; font-size: 18px; font-weight: 300;
-    color: var(--color-teal);
+    font-family: 'Roboto Slab', serif; font-size: 18px; font-weight: 400;
+    color: var(--color-black);
     padding: 8px 0; margin-top: 4px;
     background: transparent;
     transition: border-color 150ms ease;
   }
   .checkin__other-input:focus { outline: none; border-bottom-color: var(--color-teal); }
-  .checkin__other-input::placeholder { color: rgba(255, 255, 255, 0.5); }
+  .checkin__other-input::placeholder { color: #97A4A1; }
   .checkin__choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
   .checkin__choice {
     display: flex; align-items: center; gap: 12px;
     padding: 14px 18px;
     border: 1px solid var(--color-border); border-radius: 10px;
     background: rgba(92, 214, 200, 0.1);
-    font-family: 'Roboto Slab', serif; font-size: 16px; color: var(--color-teal);
+    font-family: 'Roboto Slab', serif; font-size: 18px; font-weight: 400;
+    color: var(--color-black); line-height: 1.4;
     cursor: pointer; text-align: left;
     transition: background-color 150ms ease, border-color 150ms ease;
   }
@@ -153,7 +185,7 @@
     width: 26px; height: 26px;
     border: 1px solid var(--color-border); border-radius: 6px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 600; color: var(--color-slate);
+    font-size: 14px; font-weight: 600; color: var(--color-slate);
     flex-shrink: 0; background: var(--color-off-white);
   }
   .checkin__choice--selected .checkin__choice-key {
@@ -162,33 +194,38 @@
   .checkin__textarea {
     width: 100%;
     border: none; border-bottom: 2px solid var(--color-border);
-    font-family: 'Roboto Slab', serif; font-size: 20px; font-weight: 300;
-    color: var(--color-teal);
+    font-family: 'Roboto Slab', serif; font-size: 20px; font-weight: 400;
+    color: var(--color-black);
     padding: 8px 0; margin-bottom: 24px;
-    background: transparent; resize: none; min-height: 96px; line-height: 1.5;
+    /* Grows with the content via JS. overflow-y: hidden keeps scrollHeight an
+       honest measure of the text and stops an inner scrollbar appearing.
+       min-height is a whole number of lines so a short answer never sits in a
+       box that clips the last line in half. */
+    background: transparent; resize: none; line-height: 1.6;
+    min-height: 128px; overflow-y: hidden;
     transition: border-color 150ms ease;
   }
   .checkin__textarea:focus { outline: none; border-bottom-color: var(--color-teal); }
-  .checkin__textarea::placeholder { color: rgba(255, 255, 255, 0.5); }
+  .checkin__textarea::placeholder { color: #97A4A1; }
   .checkin__input {
     width: 100%;
     border: none; border-bottom: 2px solid var(--color-border);
-    font-family: 'Roboto Slab', serif; font-size: 22px; font-weight: 300;
-    color: var(--color-teal);
+    font-family: 'Roboto Slab', serif; font-size: 22px; font-weight: 400;
+    color: var(--color-black);
     padding: 8px 0; margin-bottom: 24px;
     background: transparent;
     transition: border-color 150ms ease;
     color-scheme: dark;
   }
   .checkin__input:focus { outline: none; border-bottom-color: var(--color-teal); }
-  .checkin__input::placeholder { color: rgba(255, 255, 255, 0.5); }
-  .checkin__optional { font-size: 16px; font-weight: 400; color: var(--color-slate); }
+  .checkin__input::placeholder { color: #97A4A1; }
+  .checkin__optional { font-size: 17px; font-weight: 400; color: var(--color-slate); }
   .checkin__actions { display: flex; align-items: center; gap: 12px; }
   .checkin__btn {
     background: var(--color-teal); color: var(--color-white);
     border: none; border-radius: 10px;
     padding: 12px 28px;
-    font-family: 'Roboto Slab', serif; font-size: 16px; font-weight: 500;
+    font-family: 'Roboto Slab', serif; font-size: 17px; font-weight: 500;
     cursor: pointer;
     transition: background-color 150ms ease, transform 80ms ease;
   }
@@ -196,7 +233,7 @@
   .checkin__btn:active { transform: scale(0.97); }
   .checkin__btn:focus-visible { outline: 2px solid var(--color-black); outline-offset: 2px; }
   .checkin__btn:disabled { opacity: 0.6; cursor: default; }
-  .checkin__enter-hint { font-size: 13px; color: var(--color-slate); }
+  .checkin__enter-hint { font-size: 14px; color: var(--color-slate); }
   .checkin__enter-hint strong { font-weight: 600; }
   .checkin__nav {
     position: fixed; bottom: 20px; right: 24px;
@@ -223,16 +260,16 @@
   .checkin__nav-btn svg { width: 16px; height: 16px; }
   .checkin__welcome-title, .checkin__end-title {
     font-size: 34px; font-weight: 700;
-    letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 16px;
+    letter-spacing: -0.005em; line-height: 1.25; margin-bottom: 16px;
   }
   .checkin__welcome-sub, .checkin__end-sub {
-    font-size: 17px; color: var(--color-slate);
-    line-height: 1.5; margin-bottom: 32px;
+    font-size: 18px; color: var(--color-slate);
+    line-height: 1.6; margin-bottom: 32px;
   }
   .checkin__welcome-body { margin-bottom: 32px; }
   .checkin__welcome-body p {
-    font-size: 16px; color: var(--color-slate);
-    line-height: 1.55; margin-bottom: 16px;
+    font-size: 17px; color: var(--color-slate);
+    line-height: 1.65; margin-bottom: 16px;
   }
   .checkin__welcome-body p:last-child { margin-bottom: 0; }
   .checkin__welcome-body strong { color: var(--color-black); font-weight: 600; }
@@ -240,20 +277,20 @@
     display: inline-block;
     background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); color: #fbbf24;
     border-radius: 10px; padding: 10px 16px;
-    font-size: 14px; margin-bottom: 24px; line-height: 1.5;
+    font-size: 15px; margin-bottom: 24px; line-height: 1.55;
   }
   .checkin__error-box {
     background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.45); color: #f87171;
     border-radius: 10px; padding: 14px 18px;
-    font-size: 15px; line-height: 1.5; margin-bottom: 24px;
+    font-size: 16px; line-height: 1.55; margin-bottom: 24px;
   }
   .checkin__time-estimate {
     display: inline-flex; align-items: center; gap: 6px;
-    font-size: 13px; color: var(--color-slate); margin-left: 12px;
+    font-size: 14px; color: var(--color-slate); margin-left: 12px;
   }
   .checkin__result { text-align: center; }
   .checkin__result-eyebrow {
-    font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em;
     color: var(--color-teal); font-weight: 600; margin-bottom: 8px;
   }
   .checkin__gauge { width: 100%; max-width: 520px; height: auto; display: block; margin: 0 auto; }
@@ -269,10 +306,10 @@
   }
   .checkin__result-check svg { width: 18px; height: 18px; }
   .checkin__result-msg {
-    font-size: 19px; color: var(--color-slate);
-    line-height: 1.55; margin: 0 auto 18px; max-width: 560px;
+    font-size: 20px; color: var(--color-slate);
+    line-height: 1.65; margin: 0 auto 18px; max-width: 560px;
   }
-  .checkin__result-msg:first-of-type { color: var(--color-black); font-size: 21px; }
+  .checkin__result-msg:first-of-type { color: var(--color-black); font-size: 22px; }
   .checkin__spinner {
     width: 18px; height: 18px;
     border: 2px solid rgba(0,0,0,0.35); border-top-color: #000000;
@@ -282,8 +319,8 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 640px) {
-    .checkin__viewport { padding: 0 24px; }
-    .checkin__question { font-size: 22px; }
+    .checkin__viewport { padding: 28px 24px; }
+    .checkin__question { font-size: 24px; }
     .checkin__welcome-title, .checkin__end-title { font-size: 26px; }
     .checkin__scale { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   }
@@ -676,6 +713,21 @@
 
     const ta = el.querySelector('textarea');
     if (ta) {
+      // Grow to fit what has been written. The box was a fixed 96px, so a long
+      // answer was clipped mid-line and the client could not read back what
+      // they had typed without scrolling inside the box. bindStep runs after
+      // the step is in the DOM, so measuring here is safe, and calling it once
+      // now sizes a restored draft correctly on arrival.
+      const autoGrow = function () {
+        ta.style.height = 'auto';
+        // box-sizing is border-box, so height must include the 2px bottom
+        // border or the last line is clipped by exactly that much.
+        const border = ta.offsetHeight - ta.clientHeight;
+        ta.style.height = (ta.scrollHeight + border) + 'px';
+      };
+      ta.addEventListener('input', autoGrow);
+      autoGrow();
+
       ta.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
