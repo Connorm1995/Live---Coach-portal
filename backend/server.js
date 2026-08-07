@@ -55,6 +55,40 @@ app.use(cors({
 }));
 app.use(express.json());
 
+/**
+ * Security headers.
+ *
+ *  HSTS   forces https for a year. Without it, typing the bare address once
+ *         over http leaves that first request interceptable.
+ *  frame  the dashboard holds every client's personal and health data - never
+ *         allow another site to frame it (clickjacking).
+ *  nosniff  stop the browser second-guessing content types.
+ *  referrer  do not leak dashboard URLs to third parties.
+ *
+ * Mounted here, above every route, so it also covers /robots.txt and the
+ * login page. Sitting lower down it missed both, and a login page that can
+ * be framed by another site is exactly what clickjacking needs.
+ *
+ * No Content-Security-Policy yet: the React build and its inline bootstrap
+ * would need a policy written against the real bundle rather than guessed at.
+ */
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// The delay grows with consecutive failures and is capped, so a burst of
+// guessing becomes slow while a genuine typo costs a second. Failures are also
+// logged: previously nothing recorded that anyone had tried.
+const LOGIN_FAIL_DELAY_MS = 1000;
+const LOGIN_FAIL_DELAY_MAX_MS = 15000;
+let consecutiveLoginFailures = 0;
+
 // ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------
@@ -87,36 +121,6 @@ app.get('/login', (req, res) => {
     .type('html')
     .send(auth.LOGIN_PAGE(req.query.failed === '1'));
 });
-
-/**
- * Security headers.
- *
- *  HSTS   forces https for a year. Without it, typing the bare address once
- *         over http leaves that first request interceptable.
- *  frame  the dashboard holds every client's personal and health data - never
- *         allow another site to frame it (clickjacking).
- *  nosniff  stop the browser second-guessing content types.
- *  referrer  do not leak dashboard URLs to third parties.
- *
- * No Content-Security-Policy yet: the React build and its inline bootstrap
- * would need a policy written against the real bundle rather than guessed at.
- */
-app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'production') {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  }
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
-
-// The delay grows with consecutive failures and is capped, so a burst of
-// guessing becomes slow while a genuine typo costs a second. Failures are also
-// logged: previously nothing recorded that anyone had tried.
-const LOGIN_FAIL_DELAY_MS = 1000;
-const LOGIN_FAIL_DELAY_MAX_MS = 15000;
-let consecutiveLoginFailures = 0;
 
 app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
   if (auth.passwordMatches((req.body || {}).password || '')) {
