@@ -2,7 +2,7 @@
   "name": "myfitcoach-forms",
   "version": "1.0.0",
   "private": true,
-  "description": "Standalone client-facing forms service (forms.myfitcoach.ie). Shares the Postgres database with the coach portal but has no code dependency on it.",
+  "description": "MyFitCoach Forms - standalone client-facing forms service (forms.myfitcoach.ie). Shares the Postgres database with the coach portal but has no code dependency on it.",
   "scripts": {
     "start": "node server.js",
     "migrate": "node db/migrate.js",

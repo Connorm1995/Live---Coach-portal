@@ -108,7 +108,7 @@ async function cmdVerify(key) {
     // The dump carries data, not schema, so the scratch database needs the
     // tables first. BOTH migrations are required: the portal owns most tables,
     // but form_drafts, form_links, onboarding_* and unmatched_submissions are
-    // created by the forms service's own migration. Running only one leaves
+    // created by MyFitCoach Forms' own migration. Running only one leaves
     // the restore failing on a missing relation.
     for (const script of [
       require('path').join(__dirname, 'migrate.js'),

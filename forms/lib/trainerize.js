@@ -1,7 +1,7 @@
 /**
- * Trainerize connector for the forms service.
+ * Trainerize connector for MyFitCoach Forms.
  *
- * This is the ONLY file in the forms service that knows Trainerize exists.
+ * This is the ONLY file in MyFitCoach Forms that knows Trainerize exists.
  * If the coaching platform ever changes, replace this module and the
  * onboarding flow keeps working - the form, storage, and admin never touch
  * Trainerize directly.

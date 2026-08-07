@@ -1,6 +1,6 @@
 /**
  * Cycle date utilities - deliberate copy of backend/lib/cycle.js (weekly and
- * EOM parts only) so the forms service has zero code dependency on the portal.
+ * EOM parts only) so MyFitCoach Forms has zero code dependency on the portal.
  * If the portal's cycle rules ever change, change both copies.
  */
 

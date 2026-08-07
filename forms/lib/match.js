@@ -8,8 +8,8 @@
  * The algorithm is a deliberate copy of backend/routes/webhooks.js, which has
  * matched 1,000+ Typeform submissions in production. Same normalisation, same
  * Levenshtein ratio, same 0.8 threshold, so a name that matched under Typeform
- * matches identically here. It is duplicated rather than imported because the
- * forms service is intentionally free of any code dependency on the portal.
+ * matches identically here. It is duplicated rather than imported because
+ * MyFitCoach Forms is intentionally free of any code dependency on the portal.
  *
  * A miss is never fatal. routes/checkin.js stores unmatched submissions in
  * their own table so the answers survive and the coach can assign them by hand.

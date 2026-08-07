@@ -1,7 +1,7 @@
 /**
- * Forms service migrations.
+ * MyFitCoach Forms migrations.
  *
- * Creates the tables owned by the forms service:
+ * Creates the tables owned by MyFitCoach Forms:
  *   - form_links:  one permanent token per client per coach - the client's
  *                  personal form URL (forms.myfitcoach.ie/checkin/<token>)
  *   - form_drafts: save-as-you-go answers, one draft per client per form type

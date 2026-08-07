@@ -763,9 +763,9 @@ This means the database stays up to date in real time without waiting for the ne
 
 On a cold start after restart, the first page load reads from PostgreSQL (fast, ~10ms) instead of calling Trainerize (slow, ~1-2s). The in-memory cache warms naturally from these DB reads.
 
-## Forms service (forms.myfitcoach.ie) - self-hosted Typeform replacement
+## MyFitCoach Forms (forms.myfitcoach.ie) - self-hosted Typeform replacement
 
-Added July 2026. Standalone Express service in `forms/`, replacing the Typeform weekly check-in (Phase 1). Shares the Railway Postgres database with the portal but has zero code dependency on it - if the portal is ever retired (e.g. a move away from Trainerize), the forms service keeps running unchanged.
+Added July 2026. Standalone Express service in `forms/`, replacing the Typeform weekly check-in (Phase 1). Shares the Railway Postgres database with the portal but has zero code dependency on it - if the portal is ever retired (e.g. a move away from Trainerize), MyFitCoach Forms keeps running unchanged.
 
 ### Data compatibility with Typeform history
 
@@ -790,7 +790,7 @@ Added July 2026. Standalone Express service in `forms/`, replacing the Typeform 
 
 ### Admin area
 
-- `/admin` on the forms service - password login (`FORMS_ADMIN_PASSWORD` in .env), stateless HMAC session cookie (`FORMS_SESSION_SECRET`), 30-day expiry.
+- `/admin` on MyFitCoach Forms - password login (`FORMS_ADMIN_PASSWORD` in .env), stateless HMAC session cookie (`FORMS_SESSION_SECRET`), 30-day expiry.
 - Lists all check-ins (Typeform-era and new), per-client and per-type filters, full answer detail, CSV export with one column per question.
 - All times displayed in Europe/Dublin and labelled "(Dublin time)". `cycle_start` DATE columns are formatted with local getters - pg returns them as local-midnight Dates, and UTC getters shift the day during Irish summer time.
 
@@ -806,7 +806,7 @@ Added July 2026. Standalone Express service in `forms/`, replacing the Typeform 
 - The band is chosen server-side in the submit response, never trusted from the client.
 - Form navigation: ArrowUp = previous question, ArrowDown = next (blocked with a shake if a scored question is unanswered; free-text and the multi-select are skippable). Swipe up/down does the same on touch devices, except over the scrollable multi-select list and text inputs. Enter advances on text questions (Shift+Enter for a new line).
 
-### End of Month report on the forms service (July 2026)
+### End of Month report on MyFitCoach Forms (July 2026)
 
 - The EOM report runs on the same engine as the weekly check-in at `/monthly/<token>` (same personal token per client). Definition in `forms/lib/eom-definition.js`, built from `connor-eom-report-reference.md`: training first / overall last, explicit follow-up thresholds (low = 6 or below, stress = 7 or above), multiple-choice follow-ups, unscored direction confidence, hindsight question. Cycle = 1st of the current month, checkins.type = 'eom_report'.
 - EOM scoring brackets differ from weekly (training bracket, stress position 6 scores 4 not 3). Verified against Typeform's own calculated scores: 18/20 historical EOM responses match exactly; the two non-matching are the earliest (mid-March 2026), where Typeform recorded score 0 because its scoring variable was not yet configured.
@@ -818,7 +818,7 @@ Added July 2026. Standalone Express service in `forms/`, replacing the Typeform 
 - Drafts autosave keyed by an anonymous UUID in the browser's localStorage (onboarding_drafts table); the UUID is cleared after successful submit so the next person on the same device starts fresh.
 - Submit pipeline, in order: (1) store answers in onboarding_submissions - never lost from this point; (2) create the client in Trainerize via /user/add with sendMail: true, so Trainerize emails the sign-in invite itself (no separate email service); (3) create the portal clients row (program defaults to my_fit_coach) and mint their personal form_links token so check-in links exist from day one; (4) mark synced. Any Trainerize failure marks sync_failed with the error - the client still sees the success screen, and the admin area (Onboarding tab) shows the failure with a one-click retry.
 - Auto-sync on submit is deliberate (Connor's call): the link is only given to real new clients; a stray submission is deleted manually.
-- forms/lib/trainerize.js is the only file in the forms service that knows Trainerize exists - swap this connector if the coaching platform ever changes.
+- forms/lib/trainerize.js is the only file in MyFitCoach Forms that knows Trainerize exists - swap this connector if the coaching platform ever changes.
 - Verified end to end against the live Trainerize API with a test client (created, synced, then deleted via /user/delete). Trainerize duplicate email returns a 406 which surfaces as a retryable sync failure.
 
 ### Program PDF export (July 2026)
@@ -994,7 +994,7 @@ punctuation, lowercase, collapse spaces), same Levenshtein similarity ratio,
 same **0.8 threshold**. A name that matched under Typeform matches identically
 here.
 
-It is duplicated rather than imported because the forms service is deliberately
+It is duplicated rather than imported because MyFitCoach Forms is deliberately
 free of any code dependency on the portal. If the threshold is ever tuned,
 change both.
 
@@ -1011,7 +1011,7 @@ warning and returns 200, and the portal never sees it. (The response still
 exists in Typeform's own Responses area, so the data was not destroyed, but
 nothing reached the portal and nothing flagged it.)
 
-The forms service instead writes it to `unmatched_submissions` with the answers
+MyFitCoach Forms instead writes it to `unmatched_submissions` with the answers
 and the built `form_data` intact, plus the closest client and that score as a
 suggestion. `/admin/unmatched` lists them with a badge in the nav, and assigning
 one inserts it into `checkins` exactly as the matched path would have, using the

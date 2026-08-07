@@ -1,4 +1,4 @@
-# Railway config for the forms service (forms.myfitcoach.ie).
+# Railway config for MyFitCoach Forms (forms.myfitcoach.ie).
 # In the Railway service settings, set "Config-as-code file path" to
 # railway.forms.toml so this service does not pick up the portal's railway.toml.
 

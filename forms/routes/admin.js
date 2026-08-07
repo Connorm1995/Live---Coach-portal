@@ -211,7 +211,7 @@ router.get('/admin/login', (req, res) => {
   const failed = req.query.failed === '1';
   res.send(page('Log in', `
     <div class="login-card">
-      <h1>Forms admin</h1>
+      <h1>MyFitCoach Forms</h1>
       ${failed ? '<div class="error">Wrong password - try again.</div>' : ''}
       <form method="POST" action="/admin/login">
         <input type="password" name="password" placeholder="Password" autofocus required />

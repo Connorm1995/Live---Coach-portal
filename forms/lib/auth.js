@@ -1,5 +1,5 @@
 /**
- * Single-user admin auth for the forms service.
+ * Single-user admin auth for MyFitCoach Forms.
  *
  * Login compares against FORMS_ADMIN_PASSWORD (.env). A successful login sets
  * an httpOnly cookie whose value is an HMAC of FORMS_SESSION_SECRET - stateless,
