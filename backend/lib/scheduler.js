@@ -553,6 +553,48 @@ async function reconcileClients() {
 // Gate reconciliation to run at most once per Dublin calendar day, after 06:00.
 // In-memory tracking is intentional: on restart it simply runs once more that
 // day, which is harmless (the job is idempotent) and useful as a catch-up.
+// ---------------------------------------------------------------------------
+// Daily database backup
+// ---------------------------------------------------------------------------
+// Runs once a day at 03:00 Dublin, when nothing else is happening. Uploads a
+// full dump to Cloudflare R2 and applies the retention policy.
+//
+// Tracked in memory like the reconcile job: on restart it simply runs once
+// more that day, which is harmless. An extra backup is never a problem; a
+// missing one is.
+let lastBackupDay = null;
+async function maybeRunBackup() {
+  const dublin = getDublinTime();
+  const dayKey = `${dublin.year}-${String(dublin.month).padStart(2, '0')}-${String(dublin.day).padStart(2, '0')}`;
+  if (dayKey === lastBackupDay) return;
+  if (dublin.hour < 3) return;
+
+  const backup = require('./backup');
+  const r2 = require('./r2');
+  if (!r2.isConfigured()) {
+    // Say so once a day rather than silently doing nothing - a backup that is
+    // quietly not running is worse than one that is loudly broken.
+    lastBackupDay = dayKey;
+    console.warn('[Backup] R2 is not configured - no backup taken. Set R2_* variables.');
+    return;
+  }
+
+  lastBackupDay = dayKey;
+  try {
+    console.log(`[Backup] Starting daily backup (${dayKey} Dublin)`);
+    const res = await backup.runBackup();
+    const p = await backup.prune();
+    console.log(
+      `[Backup] Done - ${res.rows.toLocaleString()} rows across ${res.tables} tables, ` +
+      `${(res.gzBytes / 1048576).toFixed(1)} MB compressed -> ${res.key} ` +
+      `(retention: ${p.kept} kept, ${p.deleted} removed)`
+    );
+  } catch (err) {
+    // Loud, and it will try again tomorrow.
+    console.error(`[Backup] FAILED - no backup was taken today: ${err.message}`);
+  }
+}
+
 let lastReconcileDay = null;
 async function maybeReconcileClients() {
   const dublin = getDublinTime();
@@ -571,6 +613,7 @@ function startScheduler() {
     await processScheduledPosts();
     await processReminders();
     await maybeReconcileClients();
+    await maybeRunBackup();
   }, 60 * 1000);
 
   // Run on startup after 5s delay to catch any due items
@@ -579,6 +622,7 @@ function startScheduler() {
     await processScheduledPosts();
     await processReminders();
     await maybeReconcileClients();
+    await maybeRunBackup();
   }, 5000);
 }
 

@@ -1134,3 +1134,93 @@ mentioned here is the expected case, not the exception:
 Both are reported only. Correcting is always a deliberate `--switch`, never
 automatic, because silently creating or deleting messages on a client's
 calendar is not something a status command should do.
+
+---
+
+## Database backups (August 2026)
+
+**Before this, there were none.** Railway only offers backups on the Pro plan
+and the account is on Hobby, so the Backups tab read "No Backups". The entire
+business - 167,000 rows including 15 months of check-ins - existed in exactly
+one place.
+
+### Where they go, and why not Railway
+
+Daily full dump to **Cloudflare R2**, free at this size (77 MB database, ~12 MB
+compressed per backup; the free tier is 10 GB).
+
+Railway Pro would have given backups plus point-in-time recovery for $20/month,
+but those backups live *inside Railway*. That protects against a corrupted
+database and not against losing the account, which is the failure that actually
+ends a business. An off-platform copy covers the worse case for nothing. The
+two stack rather than compete, so Pro remains worth adding later for finer
+recovery granularity.
+
+**The bucket has EU jurisdiction.** The data is health and fitness information
+about identifiable Irish people - special category data under GDPR Article 9 -
+so it stays in the EU. This is not cosmetic: **an EU bucket is unreachable on
+the default `<account>.r2.cloudflarestorage.com` endpoint and answers 403
+AccessDenied**, which looks exactly like bad credentials and is not. The host
+must be `<account>.eu.r2.cloudflarestorage.com`. `R2_JURISDICTION` defaults to
+`eu` for this reason.
+
+### Why not pg_dump
+
+It is not installed on the Railway container, and adding it means changing the
+build. `lib/backup.js` produces the dump using the `pg` driver already present,
+so it behaves identically locally and in production.
+
+**Escaping is done by Postgres, not by us.** Every value is rendered with
+`quote_nullable(col::text)` inside the SELECT, so Postgres itself produces the
+literal for bytea, jsonb, timestamps and text. Hand-rolling that in JavaScript
+would be a rich source of corruption discovered only on the day a restore is
+needed.
+
+### Two things that bit during the build
+
+**Statement splitting.** The dump is ~135 MB of SQL. Sending it as one query
+resets the connection, so it must be split. Splitting on semicolons or newlines
+is wrong - both appear inside clients' free-text answers. Each dump therefore
+carries a random per-dump delimiter, recorded in its own header, and restore
+splits on that. `splitStatements()` refuses to guess if the header is absent.
+Rows are batched 500 per INSERT, which shrinks the file and the statement count.
+
+**The schema needs both migrations.** `backend/db/migrate.js` owns most tables,
+but `form_drafts`, `form_links`, `onboarding_*` and `unmatched_submissions` come
+from `forms/db/migrate.js`. Restoring into a database built from only one fails
+on a missing relation. `verify` runs both.
+
+### Verification is the point
+
+`node backend/db/backup.js verify` creates a scratch database, builds the schema
+from both migrations, restores the latest backup into it, and compares **every
+table's row count plus content checksums** against production, then drops the
+scratch database.
+
+Row counts alone are not enough - a quoting bug would insert happily and corrupt
+silently - so md5 checksums of `checkins.form_data`, client names and emails,
+message bodies and titles are compared as well.
+
+First verified run: 24 tables, 167,107 rows, every count and every checksum
+identical.
+
+### Retention
+
+30 daily backups, plus the first backup of each of the last 12 months. Pruning
+runs automatically after each backup.
+
+### Commands
+
+```
+node backend/db/backup.js run                  take one now
+node backend/db/backup.js list                 what is stored
+node backend/db/backup.js verify [key]         prove it restores
+node backend/db/backup.js restore <key> --into "<connection string>"
+```
+
+`restore` has no default target and never will. It requires an explicit
+`--into`, so production cannot be overwritten by a typo.
+
+The scheduler runs a backup daily at 03:00 Dublin. A missing R2 configuration
+logs a warning once a day rather than failing silently, because a backup that
+is quietly not running is worse than one that is loudly broken.
