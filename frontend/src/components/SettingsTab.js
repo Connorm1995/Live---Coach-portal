@@ -3,6 +3,16 @@ import './SettingsTab.css';
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
 
+const REVOKE_WARNING =
+  'Log out every device, everywhere, including this one?\n\n'
+  + 'Use this if you think someone else may have access. '
+  + 'You will need your password to get back in.';
+
+function confirmRevoke(e) {
+  // eslint-disable-next-line no-alert
+  if (!window.confirm(REVOKE_WARNING)) e.preventDefault();
+}
+
 function SettingsTab() {
   const [mfcEnabled, setMfcEnabled] = useState(true);
   const [coreEnabled, setCoreEnabled] = useState(true);
@@ -120,6 +130,45 @@ function SettingsTab() {
             These toggles control reminders per program type. Individual clients can also
             be disabled from the Clients tab using the per-client reminder toggle.
           </p>
+        </div>
+      </div>
+
+      <div className="settings__section settings__section--spaced">
+        <h3 className="settings__section-title">Your account</h3>
+
+        <div className="settings__row">
+          <div className="settings__row-info">
+            <span className="settings__row-label">Log out</span>
+            <span className="settings__row-description">
+              Signs you out of this browser only. Other devices stay signed in.
+            </span>
+          </div>
+          <a className="settings__button" href={`${API_BASE}/logout`}>
+            Log out
+          </a>
+        </div>
+
+        <div className="settings__divider" />
+
+        <div className="settings__row">
+          <div className="settings__row-info">
+            <span className="settings__row-label">Log out everywhere</span>
+            <span className="settings__row-description">
+              Signs out every device that is logged in, including this one. Use this if you
+              think someone else may have access. You will need your password again.
+            </span>
+          </div>
+          {/*
+            A real form POST rather than fetch, so the browser follows the server's
+            redirect to the login page. This is the same mechanism the MyFitCoach Forms
+            admin area uses, and it reuses the existing /logout-everywhere endpoint
+            without any backend change.
+          */}
+          <form method="POST" action={`${API_BASE}/logout-everywhere`} onSubmit={confirmRevoke}>
+            <button className="settings__button settings__button--danger" type="submit">
+              Log out everywhere
+            </button>
+          </form>
         </div>
       </div>
 

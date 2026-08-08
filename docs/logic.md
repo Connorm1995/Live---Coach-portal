@@ -1606,3 +1606,164 @@ works, and revoking one app does not touch the other.
 
 Two-factor authentication. Worth revisiting, but the four fixes above close the
 gaps that actually existed.
+
+---
+
+## "Log out everywhere" in the Coach Portal (August 2026)
+
+**What it does:** Coach's Corner - Settings now has a "Your account" section with
+"Log out" (this browser only) and "Log out everywhere" (every device, including
+the one being used). The second asks for confirmation first.
+
+**Why there was nothing to build server-side:** the kill switch itself already
+existed from the session security work - `POST /logout-everywhere` bumps the
+epoch in `auth_epochs`. MyFitCoach Forms had a button for it; the portal had the
+capability and no way to reach it, because its interface is a React app rather
+than server-rendered pages. This was the missing button, not a missing feature.
+
+**Why a plain form POST rather than fetch:** the endpoint answers with a redirect
+to the login page. A form submission lets the browser follow that redirect
+naturally. It is also the same mechanism MyFitCoach Forms uses, so the two apps
+behave identically.
+
+**The login page now confirms it worked.** `/logout-everywhere` has always
+redirected to `/login?revoked=1`, but the portal's login page ignored the flag
+and rendered a plain login box - identical to what you get when a session simply
+expires. So the button gave no evidence it had done anything. It now shows "All
+devices have been logged out", matching MyFitCoach Forms.
+
+---
+
+## Content Security Policy - Coach Portal (August 2026)
+
+**What it is, in plain terms:** a browser runs whatever code it finds on a page
+and cannot tell ours from anyone else's. The policy is a list sent with every
+response naming the only places code and styling may come from. The browser
+refuses everything else.
+
+**Why it matters here specifically:** text nobody at MyFitCoach wrote does reach
+these pages. The check-in link is public by design, and `/webhooks/*` is
+deliberately unauthenticated (a considered decision - see the August 2026 notes).
+If any of that text ever contained something shaped like code, this is what stops
+the browser running it.
+
+**Where it lives:** `backend/lib/security-headers.js`, mounted above every route
+in `server.js` so it also covers `/robots.txt` and the login page.
+
+**Why its own file rather than inline in server.js:** `server.js` cannot be
+started on a development machine to test anything. `startScheduler()` runs
+unconditionally on boot and `.env` points at the live database, so five seconds
+later a laptop would be sending real scheduled messages, real group posts and
+real reminder DMs to real clients. Keeping the headers in their own module with
+no database dependency means the policy can be served and exercised against the
+real built bundle and the real login page without any of that. See "Running the
+portal locally is not safe" below.
+
+**Every source was checked against the real assets.** This matters more than
+usual because the failure mode is silent: a policy that is too strict still
+renders a normal-looking page while a button quietly does nothing.
+
+| Directive | Allows | Because |
+|---|---|---|
+| `script-src` | `'self'` only | The production build puts all JavaScript in `/static/js/*.js`. The built `index.html` has one `<script src>` tag and nothing inline, so no nonce, hash or `'unsafe-inline'` is needed. |
+| `style-src` | `'self'`, fonts.googleapis.com, a per-request nonce | `/static/css/*.css`, the Google Fonts stylesheet, and exactly one inline `<style>` - the login page. |
+| `font-src` | fonts.gstatic.com | The Google Fonts *stylesheet* comes from googleapis but the font *files* come from gstatic. Allowing only the first gives text with no DM Sans. |
+| `img-src` | `'self'`, `data:`, api.trainerize.com | Logo and favicon; the preview shown when attaching a file in Messages plus an inline SVG background in the built CSS; image attachments in message threads. |
+| `media-src` | api.trainerize.com | Video attachments render in a `<video>` element pointed at the Trainerize file API. Easy to miss - covered by neither `img-src` nor `connect-src`. |
+| `connect-src` | `'self'` | Every API call is same-origin. Trainerize is only ever called from the server. |
+
+Links out to Loom, MyFitnessPal and bit.ly need no entry. CSP does not restrict
+where an `<a href>` points, only what a page loads and runs.
+
+**Why a nonce for the login page rather than a hash:** the login page is a
+self-contained template in `auth.js` with its CSS inline. A hash of that CSS
+would go stale the moment anyone edited it, and the page would silently lose all
+its styling. A fresh nonce per request cannot go stale.
+
+**React's `style={{...}}` prop is unaffected.** It sets styles through the CSSOM,
+which CSP does not police. Only literal `style="..."` attributes in served HTML
+and `<style>` blocks are covered.
+
+**`reportOnly` exists but is unused here.** It sends the policy as
+`Content-Security-Policy-Report-Only`, where the browser reports what it would
+have blocked and blocks nothing. The portal is used only by Connor, where a
+mistake costs a refresh. It is there for MyFitCoach Forms, where a mistake lands
+on a client mid-check-in and should be watched before it is enforced.
+
+### Verified
+
+Served through the real middleware with the real built bundle and the real login
+page. The login page renders fully styled (proving the nonce works - without it
+the page would be bare HTML), DM Sans downloads from gstatic, the dashboard
+bundle loads and runs, and the console is clean on both.
+
+Then each source individually: Trainerize images, Trainerize video, the `data:`
+file preview and our own logo all load with no violation; an outside script, an
+outside image and an inline style without the nonce are all blocked. The nonce
+differs on every request.
+
+### Not done here
+
+MyFitCoach Forms. Deliberately deferred to the forms redesign rather than done
+now, for two reasons. Switching an enforcing policy on before a redesign leaves a
+tripwire across it - new styling written the old way would be silently blocked.
+And the preparatory work (lifting the inline styles and script out of
+`public/checkin.html` into their own files, and converting seven inline handlers
+in `routes/admin.js`) is the same tidying the redesign wants doing first anyway,
+so it belongs at the start of that work, with the policy written against the
+finished forms at the end of it.
+
+---
+
+## The scheduler is off unless switched on (August 2026)
+
+**The problem.** `backend/server.js` used to call `startScheduler()` from the
+`app.listen` callback with no guard, and `.env` points at the live Railway
+database. Five seconds after boot it ran `processScheduledMessages`,
+`processScheduledPosts`, `processReminders`, `maybeReconcileClients` and
+`maybeRunBackup`.
+
+Started on a laptop, that meant real DMs and real group posts going to real
+clients through Trainerize, from a second worker competing with the deployed one
+for the same pending rows. `reminder_logs` deduplicates reminders, but a pending
+scheduled message picked up by both instances could be sent to the client twice.
+
+The `portal-auth-test` entry in `.claude/launch.json` did exactly this. It sets a
+local password and secret, which makes it look safe, but it changed neither the
+database nor the scheduler.
+
+**The fix.** `SCHEDULER_ENABLED` must be exactly `true` for anything automatic to
+run. Anything else, including leaving it unset, starts the server normally and
+sends nothing.
+
+**Restarts were never the problem, and still are not.** The scheduler only acts
+on items whose send time has already passed; a restart catches up on what became
+due while it was down and leaves everything future alone. That behaviour is
+unchanged. The risk was only ever two instances running at once.
+
+**Why off by default, which is the riskier-looking choice.** If the variable goes
+missing in Railway, nothing sends. That is weighed against the alternative, where
+the mistake is invisible and lands on clients instead of in a log. A silent
+non-send is recoverable and would be noticed within a week. A client receiving
+the same message twice cannot be undone.
+
+Three things make the "forgot to set it" case survivable:
+
+- the startup banner is impossible to miss in the deploy logs;
+- `/health` reports `"scheduler": "on"` or `"off"`, checkable in a browser;
+- it is a variable Connor sets himself, unlike `NODE_ENV`, which was
+  platform-provided and vanished on its own. That distinction is the whole
+  reason this is judged safe rather than a repeat of the NODE_ENV mistake
+  above.
+
+**Deploy note.** `SCHEDULER_ENABLED=true` must be set on the Railway portal
+service BEFORE this ships, or the first deploy silently stops every scheduled
+message, reminder and nightly backup.
+
+### Verified
+
+Started the real `backend/server.js` against the real `.env` with the variable
+unset. The banner printed, no `[Scheduler] Started` line appeared, `/health`
+returned `{"status":"ok","scheduler":"off"}`, and twelve seconds of running
+produced no scheduler activity at all - the five-second startup burst that would
+previously have sent the queue never happened.

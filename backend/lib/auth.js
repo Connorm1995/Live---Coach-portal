@@ -210,7 +210,22 @@ function isPublicPath(pathname) {
     || pathname.startsWith('/webhooks/');
 }
 
-const LOGIN_PAGE = (failed) => `<!DOCTYPE html>
+/**
+ * The login page.
+ *
+ * `revoked` shows a confirmation after "Log out everywhere". Without it the
+ * button gave no feedback at all: it redirected here with ?revoked=1, the page
+ * ignored the flag, and you got a plain login box identical to a session that
+ * had simply expired - no way to tell whether the kill switch had actually
+ * fired. MyFitCoach Forms already confirms this; the portal now matches.
+ *
+ * `nonce` is the per-request value from the Content Security Policy. It must be
+ * on the <style> tag or the browser refuses the page's own styling and the
+ * login box renders as bare unstyled HTML. Taking it as an argument rather than
+ * reaching for a global keeps this a pure function that can be rendered and
+ * checked without a server or a database.
+ */
+const LOGIN_PAGE = ({ failed = false, revoked = false, nonce = '' } = {}) => `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -218,7 +233,7 @@ const LOGIN_PAGE = (failed) => `<!DOCTYPE html>
 <meta name="robots" content="noindex, nofollow" />
 <title>Coach Portal - My Fit Coach</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
-<style>
+<style${nonce ? ` nonce="${nonce}"` : ''}>
   :root { --black:#000; --teal:#23b8b8; --teal-bright:#12dacb; --slate:#555e62; --border:#e2e5e8; --red:#ef4444; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:'DM Sans',sans-serif; background:#f5f6f7; color:var(--black);
@@ -236,12 +251,16 @@ const LOGIN_PAGE = (failed) => `<!DOCTYPE html>
            padding:12px; font-family:inherit; font-size:15px; font-weight:500; cursor:pointer; }
   button:hover { background:var(--teal-bright); }
   .error { color:var(--red); font-size:14px; }
+  .notice { background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.45);
+            color:#15803d; font-size:14px; border-radius:8px; padding:10px 12px;
+            line-height:1.45; }
 </style>
 </head>
 <body>
   <div class="card">
     <div class="brand">MY<span>FIT</span>COACH</div>
     <h1>Coach Portal</h1>
+    ${revoked ? '<div class="notice">All devices have been logged out. Log in again below.</div>' : ''}
     ${failed ? '<div class="error">Wrong password - try again.</div>' : ''}
     <form method="POST" action="/login">
       <input type="password" name="password" placeholder="Password" autofocus required

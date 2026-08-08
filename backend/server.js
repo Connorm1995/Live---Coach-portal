@@ -14,6 +14,7 @@ const settingsRoutes = require('./routes/settings');
 const clientOverviewRoutes = require('./routes/client-overview');
 const { startScheduler } = require('./lib/scheduler');
 const auth = require('./lib/auth');
+const { securityHeaders } = require('./lib/security-headers');
 
 const app = express();
 // Railway terminates TLS at its edge, so req.secure and req.ip must come from
@@ -43,6 +44,47 @@ for (const key of ['PORTAL_ADMIN_PASSWORD', 'PORTAL_SESSION_SECRET']) {
   }
 }
 
+/**
+ * The scheduler is OFF unless switched on explicitly.
+ *
+ * It used to start unconditionally on boot. Combined with .env pointing at the
+ * live database, that made simply starting this file on a laptop a live action:
+ * five seconds later it works through processScheduledMessages,
+ * processScheduledPosts, processReminders, reconcileClients and the backup,
+ * sending real DMs and real group posts to real clients through Trainerize.
+ *
+ * Worse, it would be a SECOND worker on the same queue as the deployed service.
+ * reminder_logs deduplicates reminders, but a pending scheduled message can be
+ * picked up by both instances and sent to the client twice.
+ *
+ * Off by default is the deliberate choice, and it is the riskier-looking one:
+ * if this variable is ever missing in Railway, nothing sends. That is weighed
+ * against the alternative, where the mistake is invisible and lands on clients
+ * rather than in a log. A silent non-send is recoverable and Connor would spot
+ * it within a week; a client receiving the same message twice cannot be undone.
+ *
+ * Three things make the "forgot to set it" case survivable:
+ *   - the startup banner below is impossible to miss in the deploy logs;
+ *   - /health reports it, so it can be checked in a browser in one glance;
+ *   - it is a variable Connor sets himself in Railway, unlike NODE_ENV, which
+ *     was platform-provided and vanished on its own. That distinction is the
+ *     whole reason this is judged safe. See the NODE_ENV lesson in
+ *     docs/logic.md - never gate a control on a variable that can go missing
+ *     without anything failing or logging.
+ */
+const SCHEDULER_ENABLED = process.env.SCHEDULER_ENABLED === 'true';
+
+const SCHEDULER_OFF_BANNER = `
+============================================================
+[Scheduler] OFF - nothing will be sent or run automatically.
+   No scheduled messages, no group posts, no check-in
+   reminders, no client reconciliation, no database backup.
+
+   This is correct on a laptop. On the live service it is
+   NOT: set SCHEDULER_ENABLED=true in Railway and redeploy.
+   Check any time at /health -> "scheduler".
+============================================================`;
+
 const allowedOrigins = [
   'http://localhost:3000',
   'https://dashboard.myfitcoach.ie',
@@ -59,34 +101,16 @@ app.use(cors({
 app.use(express.json());
 
 /**
- * Security headers.
+ * Security headers, including the Content Security Policy.
  *
- *  HSTS   forces https for a year. Without it, typing the bare address once
- *         over http leaves that first request interceptable.
- *  frame  the dashboard holds every client's personal and health data - never
- *         allow another site to frame it (clickjacking).
- *  nosniff  stop the browser second-guessing content types.
- *  referrer  do not leak dashboard URLs to third parties.
+ * Mounted here, above every route, so it also covers /robots.txt and the login
+ * page. Sitting lower down it missed both, and a login page that can be framed
+ * by another site is exactly what clickjacking needs.
  *
- * Mounted here, above every route, so it also covers /robots.txt and the
- * login page. Sitting lower down it missed both, and a login page that can
- * be framed by another site is exactly what clickjacking needs.
- *
- * No Content-Security-Policy yet: the React build and its inline bootstrap
- * would need a policy written against the real bundle rather than guessed at.
+ * The policy itself and the reasoning behind every source in it live in
+ * lib/security-headers.js.
  */
-app.use((req, res, next) => {
-  // Sent only on real https requests - browsers ignore HSTS over plain http,
-  // and this must not depend on NODE_ENV, which went missing on the deployed
-  // service and silently took the cookie's Secure flag with it.
-  if (auth.isHttps(req)) {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  }
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
+app.use(securityHeaders({ isHttps: auth.isHttps }));
 
 // The delay grows with consecutive failures and is capped, so a burst of
 // guessing becomes slow while a genuine typo costs a second. Failures are also
@@ -125,7 +149,11 @@ app.get('/login', (req, res) => {
   if (auth.isAuthed(req)) return res.redirect('/');
   res.status(req.query.failed === '1' ? 401 : 200)
     .type('html')
-    .send(auth.LOGIN_PAGE(req.query.failed === '1'));
+    .send(auth.LOGIN_PAGE({
+      failed: req.query.failed === '1',
+      revoked: req.query.revoked === '1',
+      nonce: res.locals.cspNonce,
+    }));
 });
 
 app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
@@ -193,8 +221,11 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/client-overview', clientOverviewRoutes);
 app.use('/webhooks', webhookRoutes);
 
+// `scheduler` is reported here on purpose. The whole risk with an opt-in switch
+// is that it is silently off, so there has to be somewhere to look that answers
+// the question in one glance, without reading logs.
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', scheduler: SCHEDULER_ENABLED ? 'on' : 'off' });
 });
 
 // Serve React frontend build in production
@@ -213,7 +244,11 @@ auth.initAuth()
     console.log(`[auth] session epoch ${epoch} loaded`);
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
-      startScheduler();
+      if (SCHEDULER_ENABLED) {
+        startScheduler();
+      } else {
+        console.warn(SCHEDULER_OFF_BANNER);
+      }
     });
   })
   .catch((err) => {
