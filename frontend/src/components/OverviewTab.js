@@ -213,14 +213,20 @@ const CHECKIN_FIELDS = [
   { key: 'nutritionIssue',      label: 'What was the issue with nutrition?', type: 'followup' },
   { key: 'nutritionInfoVsExec', label: 'Information or execution issue?',   type: 'followup' },
   { key: 'daysOnPlan',          label: 'Days on plan',                      type: 'choice' },
+  { key: 'alcohol',             label: 'Alcoholic drinks',                  type: 'text' },
   { key: 'sleep',               label: 'Sleep',                             type: 'score' },
   { key: 'sleepIssue',          label: 'What was the issue with sleep?',    type: 'followup' },
   { key: 'digestion',           label: 'Digestion',                         type: 'score' },
   { key: 'digestionIssue',      label: 'What was the issue with digestion?', type: 'followup' },
   { key: 'stress',              label: 'Stress level',                      type: 'score' },
   { key: 'stressSource',        label: 'Main source of stress?',            type: 'followup' },
+  // Effort sits next to progress direction on purpose. The gap between them is
+  // the read on how the client feels: real effort with no progress is the
+  // frustrated client, little effort with progress is the one coasting.
+  { key: 'effort',              label: 'Effort put in',                     type: 'text' },
   { key: 'progressDirection',   label: 'Progress direction',                type: 'choice' },
   { key: 'helpNeeded',          label: 'Where do you need help?',           type: 'text' },
+  { key: 'toughWeekNote',       label: 'Tough week, asked again',           type: 'followup' },
   { key: 'upcomingEvents',      label: 'Anything coming up this week?',     type: 'text' },
 ];
 

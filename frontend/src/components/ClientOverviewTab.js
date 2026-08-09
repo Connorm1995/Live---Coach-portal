@@ -69,15 +69,21 @@ const CAL_DAY_NAMES = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const CHECKIN_PANEL_FIELDS = [
   { key: 'wins', label: 'Biggest win this week', type: 'text' },
   { key: 'daysOnPlan', label: 'Days on plan', type: 'choice' },
+  { key: 'alcohol', label: 'Alcoholic drinks', type: 'followup' },
   { key: 'trainingIssue', label: 'Training issue', type: 'followup' },
   { key: 'stepIssue', label: 'Step issue', type: 'followup' },
   { key: 'nutritionIssue', label: 'Nutrition issue', type: 'followup' },
+  // Retired from the live form Aug 2026, kept here so historical check-ins
+  // still show it. Hides automatically on submissions that never had it.
   { key: 'nutritionInfoVsExec', label: 'Info or execution?', type: 'followup' },
   { key: 'sleepIssue', label: 'Sleep issue', type: 'followup' },
   { key: 'digestionIssue', label: 'Digestion issue', type: 'followup' },
   { key: 'stressSource', label: 'Stress source', type: 'followup' },
+  // Read alongside progress direction - the gap between them is the tone read.
+  { key: 'effort', label: 'Effort put in', type: 'followup' },
   { key: 'progressDirection', label: 'Progress direction', type: 'choice' },
   { key: 'helpNeeded', label: 'Help needed', type: 'text' },
+  { key: 'toughWeekNote', label: 'Tough week, asked again', type: 'followup' },
   { key: 'upcomingEvents', label: 'Upcoming', type: 'text' },
   // End of Month report only - hidden on weekly check-ins (null = followup hides)
   { key: 'directionConfidence', label: 'Confidence in direction', type: 'followup' },

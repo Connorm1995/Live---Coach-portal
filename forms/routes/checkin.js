@@ -94,6 +94,16 @@ router.get('/api/:form(checkin|monthly)/state', async (req, res) => {
       formTitle: form.title,
       welcome: form.welcome,
       questions: form.def.QUESTIONS,
+      // The browser needs these to work out the running score for itself.
+      // One question (the tough-week follow-up) appears based on the total
+      // rather than on a single answer, and the client has to know whether to
+      // show it BEFORE submitting - the server only scores on the way in.
+      // Sent for both forms; the monthly report simply has no such question.
+      scoring: {
+        weightBrackets: form.def.WEIGHT_BRACKETS,
+        daysOnPlanWeights: form.def.DAYS_ON_PLAN_WEIGHTS,
+        progressWeights: form.def.PROGRESS_WEIGHTS,
+      },
       cycleStart,
       draft,
       submittedThisCycle,

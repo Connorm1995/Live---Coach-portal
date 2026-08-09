@@ -374,6 +374,7 @@
   }
 
   let questions = [];
+  let scoring = null;
   let firstName = '';
   let welcomeCopy = null;
   let doneCopy = null;
@@ -435,8 +436,45 @@
   // ------------------------------------------------------------
   // Flow
   // ------------------------------------------------------------
-  function conditionMet(cond) {
+  // Running weighted total, mirroring computeScore in forms/lib/form-data.js.
+  // Needed in the browser because one question appears based on the total
+  // rather than on a single answer, and that has to be decided before submit -
+  // the server only scores on the way in. Returns null until enough is
+  // answered, exactly as the server does, so a part-finished form never
+  // triggers a score-based question.
+  function currentScore() {
+    if (!scoring || !scoring.weightBrackets) return null;
+    let total = 0;
+    let count = 0;
+
+    Object.keys(scoring.weightBrackets).forEach(function (id) {
+      const n = parseInt(answers[id], 10);
+      if (Number.isInteger(n) && n >= 1 && n <= 10) {
+        total += scoring.weightBrackets[id][n - 1];
+        count++;
+      }
+    });
+    const dayW = scoring.daysOnPlanWeights || {};
+    if (dayW[answers.days_on_plan] != null) { total += dayW[answers.days_on_plan]; count++; }
+    const progW = scoring.progressWeights || {};
+    if (progW[answers.progress_direction] != null) { total += progW[answers.progress_direction]; count++; }
+
+    return count < 5 ? null : total;
+  }
+
+  function conditionMet(cond, ctx) {
     if (!cond) return true;
+
+    if (Array.isArray(cond.all)) {
+      return cond.all.every(function (c) { return conditionMet(c, ctx); });
+    }
+
+    // Checked before the field lookup - this condition has no field.
+    if (cond.op === 'scoreBelow') {
+      const s = ctx && ctx.score;
+      return typeof s === 'number' && s < cond.value;
+    }
+
     const v = answers[cond.field];
     if (v == null) return false;
     if (cond.op === 'includes') return Array.isArray(v) && v.indexOf(cond.value) !== -1;
@@ -444,7 +482,8 @@
   }
 
   function visibleSteps() {
-    const qs = questions.filter(function (q) { return conditionMet(q.conditional); });
+    const ctx = { score: currentScore() };
+    const qs = questions.filter(function (q) { return conditionMet(q.conditional, ctx); });
     return [{ kind: 'welcome' }].concat(qs, [{ kind: 'end' }]);
   }
 
@@ -1034,6 +1073,7 @@
       if (!state.ok) throw new Error(state.error);
 
       questions = state.questions;
+      scoring = state.scoring || null;
       firstName = state.firstName;
       welcomeCopy = state.welcome;
       doneCopy = state.done || null;

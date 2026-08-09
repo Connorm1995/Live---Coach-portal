@@ -69,9 +69,16 @@ const FIELD_REF_TO_TEXT = {
   '2f62d196-6bc3-4341-a802-a94d617fd28a': 'trainingIssue',
   'bb208412-8ca5-4467-8602-0ad2d1f7f3ad': 'stepIssue',
   '6cdaac53-9eae-4322-a8cc-7a3e0ad6eba3': 'nutritionIssue',
+  // Retired from the live form in Aug 2026 but KEPT here on purpose: over a
+  // thousand historical check-ins carry this answer, and removing the mapping
+  // would blank it out on every one of them.
   'f7145682-1cf2-4a81-8206-f899673ff883': 'nutritionInfoVsExec',
   'c26c1eb4-ce78-4f8d-9542-c3d0a168ae94': 'sleepIssue',
   'c3d0c143-ea9e-4f0a-a8cb-9306e24c1517': 'digestionIssue',
+  // Added to the weekly check-in Aug 2026. Readable refs, not UUIDs - these
+  // never existed in Typeform so there is no historical shape to match.
+  'weekly-alcohol':    'alcohol',
+  'weekly-tough-week': 'toughWeekNote',
   // End of Month report (shared keys reuse the same panel fields)
   'eom-biggest-win':    'wins',
   'eom-stress-source':  'stressSource',
@@ -80,12 +87,18 @@ const FIELD_REF_TO_TEXT = {
   'eom-hindsight':      'hindsight',       // EOM-only
 };
 
-// EOM-only numeric field surfaced as a text answer (e.g. "7/10")
+// Numeric fields surfaced as a text answer (e.g. "7/10") rather than scored.
+// Confidence is EOM-only; effort is weekly-only and deliberately outside the
+// weekly total, so that adding it did not shift the score or make new weeks
+// incomparable with historical ones.
 const FIELD_REF_DIRECTION_CONFIDENCE = 'eom-direction-confidence';
+const FIELD_REF_EFFORT = 'weekly-effort';
 
 // All known answer keys - parseFormAnswers returns null for unanswered fields.
-// includes the EOM-only keys so weekly check-ins report them as null (hidden).
-const ALL_TEXT_KEYS = [...new Set([...Object.values(FIELD_REF_TO_TEXT), 'directionConfidence'])];
+// Includes keys only one form asks, so the other reports them as null (hidden).
+const ALL_TEXT_KEYS = [...new Set([
+  ...Object.values(FIELD_REF_TO_TEXT), 'directionConfidence', 'effort',
+])];
 
 function toWeighted(category, rawValue, brackets = WEIGHT_BRACKETS) {
   const bracket = brackets[category];
@@ -178,9 +191,18 @@ function parseFormAnswers(formData) {
     if (cat && answer.type === 'choices' && answer.choices?.labels) {
       answers[cat] = answer.choices.labels.join(', ') || null;
     }
-    // EOM-only: confidence in direction is a 1-10 rating, surfaced as text
+    // Single-choice answers (the weekly alcohol bands). Only fires for refs in
+    // FIELD_REF_TO_TEXT, so days-on-plan and progress direction are unaffected
+    // - those are scored in parseScores and must not be duplicated here.
+    if (cat && answer.type === 'choice' && answer.choice?.label) {
+      answers[cat] = answer.choice.label;
+    }
+    // Ratings surfaced as text rather than scored
     if (ref === FIELD_REF_DIRECTION_CONFIDENCE && answer.number != null) {
       answers.directionConfidence = `${answer.number}/10`;
+    }
+    if (ref === FIELD_REF_EFFORT && answer.number != null) {
+      answers.effort = `${answer.number}/10`;
     }
   }
 
@@ -196,6 +218,7 @@ module.exports = {
   FIELD_REF_TO_SCORE,
   FIELD_REF_DAYS_ON_PLAN,
   FIELD_REF_PROGRESS,
+  FIELD_REF_EFFORT,
   FIELD_REF_TO_TEXT,
   ALL_TEXT_KEYS,
   toWeighted,

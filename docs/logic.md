@@ -1360,6 +1360,150 @@ covers all three forms.
 
 ---
 
+## Weekly check-in question revision (August 2026)
+
+Connor's own read of what the form was missing, worked through question by
+question. Three problems he named, and what was done about each.
+
+### Problem 1: no read on how the client feels
+
+The form measured what they did and what they thought happened, but nothing
+about how they felt doing it, so the tone of a Loom had to be guessed from the
+text answers.
+
+**Added question 11, "How much did you put in this week?"** It sits immediately
+before "did you progress", because neither number matters much alone. The gap
+between them is the signal:
+
+| | Regressed / same | Progressed |
+|---|---|---|
+| **High effort** | Frustrated. The quit risk. Never "push harder" here | Working. Confirm it and leave it alone |
+| **Low effort** | Stuck. Find the blocker, shrink the ask | Coasting. Nudge while it is still going well |
+
+**Rejected: a weekly "how confident are you in the direction" rating.** It was
+proposed and Connor was right to refuse it. It is a question about the coaching
+relationship, and relationships do not move weekly, so it would have been
+answered by mood. The EOM report already asks it monthly, which is the right
+cadence.
+
+**Rejected: "one thing you'd do differently".** Same reason, and the EOM already
+asks its own version monthly. Connor's words: clients would start thinking "what
+is this, a daycare".
+
+**Instead, the weekly version of that signal is opt-in.** A new option in the
+help list, under a new "Progress" heading: *"I want to know if I'm actually on
+track"*. The distinction that matters is **asked versus available**. An open
+question every week is a prompt, and people invent an answer to fill it; an
+option in a list they are already reading is a door only the person who feels it
+opens. It is also answerable from data already in the portal, which an earlier
+draft ("I'd like to talk through the plan itself") was not - Connor pointed out
+that ticking it could mean anything from a two-minute reassurance to a full
+walkthrough of the block.
+
+### Problem 2: contradictory answers
+
+Clients scoring an area well and then asking for help with it.
+
+**Added question 16, shown only when the week scored under 24 AND the client
+ticked "No, all good, just keep me accountable".** Under 24 is the existing
+boundary between the "In control" and "Underperforming" bands, not a new
+threshold - so it fires exactly when the client is about to be shown an
+Underperforming or Critical end screen anyway. Optional, and it never blocks a
+submission.
+
+This is the contradiction worth interrupting: the person having a rough week who
+says nothing is wrong is the person who quietly cancels.
+
+**Deliberately NOT done: prompting on high-score-plus-asked-for-help.** Connor's
+call - an 8/10 sleep week is a good week and the client does not need chasing
+about it. The combination will still appear and still needs interpreting. If it
+becomes annoying, the fix is probably to tighten the option wording rather than
+add a follow-up question.
+
+### Problem 3: help requests that cannot be actioned
+
+*"I need help structuring my routine this week"* asked Connor to plan a week he
+could not see. Two other options had the same flaw or duplicated it.
+
+| Removed | Replaced with |
+|---|---|
+| "I'm struggling to fit sessions into my week" (Training) | "I can't see where my sessions fit next week" |
+| "I need help structuring my routine this week" (Lifestyle) | "I've too much on - give me a stripped-back plan for next week" |
+| "I'm unsure about the overall plan structure" (Training) | nothing - the useful half is the new "on track" option |
+
+The first two were near-duplicates of each other in different sections, so the
+signal was split across two boxes and neither had a follow-up.
+
+The stripped-back wording is Connor's. It matters that it is a **request rather
+than a confession**: "I knew what to do and didn't do it" is true far more often
+than it is ticked, because nobody volunteers that about themselves.
+
+### Also changed
+
+- **Question 13, the overall week rating, moved from question 2.** Asked first
+  it was a mood reading taken before the client had thought about training, food
+  or sleep, and it routinely contradicted the detail that followed. The EOM
+  report already asked it late (question 11 of 15); the weekly now matches.
+- **Added question 7, alcohol**, as bands rather than a number. Asked EVERY
+  week, deliberately not conditional on a poor nutrition score: the client worth
+  catching is the one who rates nutrition 8/10, genuinely ate well, and drank
+  fourteen pints. That week is invisible in every other number on the form.
+  Bands because a precise figure invites under-reporting and the band is all the
+  detail needed. Drinks rather than units because a conversion table before the
+  answer means blanks and guesses.
+- **Question 10a reworded** to the EOM's version, which prompts with examples.
+  A bare "what was the source of stress?" gets one-word answers.
+- **Removed the nutrition "information issue or execution issue?" question.**
+  Connor's call: the free-text answer above it already says which it was. What
+  is lost is a pattern across weeks, since a category can be counted and free
+  text cannot. Its ref stays mapped in `overview-parsers.js` so the answer still
+  displays on the thousand-plus historical check-ins that have it.
+- Trailing full stops dropped from three Lifestyle options for consistency.
+
+### Why none of this touched the scores
+
+`WEIGHT_BRACKETS` is the only thing that decides what counts toward the total,
+and `parseScores` in the portal matches on an explicit list of field refs.
+A question with a new ref is therefore invisible to scoring unless deliberately
+added. Effort and alcohol are both outside it, so the total is still out of 45
+and every historical week stays comparable with every new one.
+
+Effort is surfaced to the portal as text ("9/10") using the same mechanism the
+EOM report already uses for its confidence rating.
+
+New questions use readable refs (`weekly-*`) rather than UUIDs, since they have
+no Typeform history to match. They must never start with `eom-`, which is how
+`overview-parsers.js` tells a monthly report from a weekly check-in.
+
+### The score-based question needed the browser to score
+
+The tough-week follow-up depends on the total rather than on a single answer,
+and it has to appear before submit, but `computeScore` only ran on the server on
+the way in. The scoring tables are now sent to the browser with the questions
+and `conditionMet` grew two shapes: `all` (every sub-condition holds) and
+`scoreBelow`. A `scoreBelow` condition with no score available is false, so a
+part-finished form never triggers it, and forms with no scoring at all
+(onboarding) are unaffected.
+
+### Verified
+
+39 automated checks over the definition, the answer builder, the validator and
+the portal parser: question order and numbering, the score unchanged at 44 and
+10 for a fixed good and bad week, effort and alcohol outside the score, the
+tough-week question appearing and staying hidden across four combinations,
+validation of the new questions, the help list contents, no em dashes, and
+historical check-ins still parsing with their retired question intact.
+
+Then the real form clicked through end to end in a browser against a throwaway
+in-memory harness, never the live database - the real forms server autosaves a
+draft row to production after every single answer, so filling it in on a laptop
+would leave test data in real client data. A bad week showed all 16 questions in
+the right order and stored all 22 answers with the correct refs, scoring 10/45
+and showing the Critical end screen. A good week correctly skipped every
+follow-up and did not show question 16 despite the client ticking "all good".
+
+---
+
 ## Readability of the check-in form (August 2026)
 
 Connor reported eye strain reading the form, and noted most of his clients are

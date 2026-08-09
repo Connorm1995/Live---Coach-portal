@@ -12,15 +12,29 @@
  */
 
 /**
+ * Context passed to conditionMet, for conditions that depend on the running
+ * score rather than on a single answer (the tough-week follow-up).
+ *
+ * Returns an empty context for definitions that have no scoring at all, such
+ * as onboarding. A score condition evaluated without a score is simply false,
+ * so those forms behave exactly as they did before.
+ */
+function scoreContext(def, answers) {
+  if (!def.WEIGHT_BRACKETS) return {};
+  return { score: computeScore(def, answers).total };
+}
+
+/**
  * Build the Typeform-shape answers array from a plain answers object.
  * Conditional questions whose trigger is not met are excluded even if a
  * stale draft value exists (e.g. client lowered then raised a score).
  */
 function buildFormData(def, answers) {
   const out = [];
+  const ctx = scoreContext(def, answers);
 
   for (const q of def.QUESTIONS) {
-    if (!def.conditionMet(q.conditional, answers)) continue;
+    if (!def.conditionMet(q.conditional, answers, ctx)) continue;
     const value = answers[q.id];
     if (value == null || value === '') continue;
 
@@ -83,8 +97,9 @@ function buildFormData(def, answers) {
  */
 function validateAnswers(def, answers) {
   const problems = [];
+  const ctx = scoreContext(def, answers);
   for (const q of def.QUESTIONS) {
-    if (!def.conditionMet(q.conditional, answers)) continue;
+    if (!def.conditionMet(q.conditional, answers, ctx)) continue;
     const value = answers[q.id];
     // Explicitly required questions (the name) must be answered whatever their
     // kind. Everything else keeps the original rule: scales and choices are
