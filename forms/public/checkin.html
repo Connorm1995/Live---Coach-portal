@@ -497,6 +497,33 @@
     return 0;
   }
 
+  /**
+   * Pin an outgoing step exactly where it currently sits, before it leaves the
+   * layout flow.
+   *
+   * The active step is position:relative and centred by `margin: auto 0`. The
+   * moment the active class comes off it becomes position:absolute with no
+   * margins, so it falls back to its static position at the top of the
+   * viewport. Measured on a 1280x720 window that is a 200px jump upward: the
+   * question you just answered teleported to the top of the screen and faded
+   * out from up there while the next one appeared centred. It read as a
+   * stutter, and it got worse the taller the window.
+   *
+   * Copying the live geometry into explicit top/left/width keeps it where the
+   * eye last saw it, so the only movement left is the 28px slide the fade is
+   * supposed to have.
+   */
+  function freezeLeavingStep(el) {
+    // Read all three before touching any of them - setting one would force a
+    // reflow and the next read would come back with the post-change value.
+    const top = el.offsetTop;
+    const left = el.offsetLeft;
+    const width = el.offsetWidth;
+    el.style.top = top + 'px';
+    el.style.left = left + 'px';
+    el.style.width = width + 'px';
+  }
+
   function render() {
     const visible = visibleSteps();
     if (currentIndex >= visible.length) currentIndex = visible.length - 1;
@@ -512,6 +539,7 @@
 
     const old = viewport.querySelector('.checkin__step--active');
     if (old) {
+      freezeLeavingStep(old);
       old.classList.remove('checkin__step--active');
       old.classList.add('checkin__step--leaving-up');
       setTimeout(function () { old.remove(); }, 320);
@@ -839,6 +867,7 @@
     el.innerHTML = renderStep({ kind: 'done', endScreen: endScreen });
     const old = viewport.querySelector('.checkin__step--active');
     if (old) {
+      freezeLeavingStep(old);
       old.classList.remove('checkin__step--active');
       old.classList.add('checkin__step--leaving-up');
       setTimeout(function () { old.remove(); }, 320);

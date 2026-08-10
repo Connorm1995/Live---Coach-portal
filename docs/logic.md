@@ -1504,6 +1504,60 @@ follow-up and did not show question 16 despite the client ticking "all good".
 
 ---
 
+## The stutter between check-in questions (August 2026)
+
+**The symptom.** Answering a question made the transition to the next one look
+jumpy - as Connor put it, it jumps to the next question and then for a couple of
+milliseconds seems to reload. Nothing was broken; it just looked wrong.
+
+**The cause.** The step being replaced teleported to the top of the screen and
+faded out from up there, while the new one appeared centred.
+
+Two CSS rules were fighting:
+
+- `.checkin__step` is `position: absolute`
+- `.checkin__step--active` overrides that with `position: relative` **and
+  `margin: auto 0`**, which is what centres the question vertically
+
+The instant the active class comes off, the outgoing step goes back to
+`position: absolute` and its margins collapse to zero, so it falls back to its
+static position at the top of the viewport. Measured on a 1280x720 window:
+
+| | Active | The moment it leaves |
+|---|---|---|
+| `position` | relative | absolute |
+| `margin-top` | 229px | 0px |
+| Distance from top of window | 261px | 32px |
+
+A 229px jump upward, on every single question, right in the eye's path. It got
+worse the taller the window, which is why it showed up on a laptop first.
+
+**The fix.** `freezeLeavingStep()` in `checkin.html` copies the element's live
+geometry into explicit `top`, `left` and `width` before the active class is
+removed, so it stays exactly where the eye last saw it while it fades. The three
+values are read before any of them is written, since setting one forces a reflow
+and the next read would come back with the post-change value.
+
+It deliberately touches only position, never `opacity` or `transform`, so the
+intended 28px slide-and-fade is unchanged.
+
+Applied in both places that run this transition: `render()` and `showDone()`.
+
+**Verified** with a MutationObserver capturing the exact instant the class flips,
+driven by a real click rather than a script. The outgoing step now stays at
+261px instead of dropping to 32px - a jump of 0. Repeated on a 375x812 phone
+viewport, also 0. Then the whole form driven through end to end: all 16
+questions, 22 answers stored, score 10/45, end screen shown, and no orphaned
+step elements left in the DOM.
+
+**Worth knowing for future browser testing:** CSS transitions do not progress
+while the browser pane is hidden, so `opacity` and `transform` read back stuck
+at their starting values and animation-frame sampling stalls entirely. Layout
+measurements (`offsetTop`, `getBoundingClientRect`) stay valid. Measure layout,
+not animation, unless the pane is definitely painting.
+
+---
+
 ## Readability of the check-in form (August 2026)
 
 Connor reported eye strain reading the form, and noted most of his clients are
