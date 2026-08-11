@@ -34,6 +34,7 @@ function App() {
   const [coachTab, setCoachTab] = useState('clients');
   const [hubOpen, setHubOpen] = useState(false);
   const [loomOpen, setLoomOpen] = useState(false);
+  const [presentOpen, setPresentOpen] = useState(false);
 
   // Client selection state
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -80,6 +81,41 @@ function App() {
   const closeLoom = useCallback(() => {
     setLoomOpen(false);
   }, []);
+
+  // Check-in Mode is built from the Overview's data, so make sure that tab is
+  // the one mounted before the presentation opens over it.
+  const openPresent = useCallback(() => {
+    if (!selectedClientId) return;
+    setClientTab('overview');
+    setPresentOpen(true);
+  }, [selectedClientId]);
+
+  const closePresent = useCallback(() => {
+    setPresentOpen(false);
+  }, []);
+
+  // "P" opens Check-in Mode, so the recording can start without hunting for a
+  // button. Ignored while typing, or while another overlay owns the screen.
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key !== 'p' && e.key !== 'P') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+      if (presentOpen || loomOpen || hubOpen) return;
+      if (activeTab !== 'client' || !selectedClientId) return;
+      e.preventDefault();
+      setClientTab('overview');
+      setPresentOpen(true);
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [presentOpen, loomOpen, hubOpen, activeTab, selectedClientId]);
+
+  // Never leave the presentation up when the client underneath it changes.
+  useEffect(() => {
+    setPresentOpen(false);
+  }, [selectedClientId]);
 
   const handleSelectClient = useCallback((clientId, defaultTab) => {
     setSelectedClientId(clientId);
@@ -130,6 +166,7 @@ function App() {
             client={clientDetail}
             onHubToggle={toggleHub}
             onLoomOpen={openLoom}
+            onPresentOpen={openPresent}
             onPhaseChange={handlePhaseChange}
             onTimezoneChange={handleTimezoneChange}
             tabs={CLIENT_TABS}
@@ -157,7 +194,12 @@ function App() {
               </div>
             )}
             {selectedClientId && clientTab === 'overview' && (
-              <ClientOverviewTab clientId={selectedClientId} />
+              <ClientOverviewTab
+                clientId={selectedClientId}
+                client={clientDetail}
+                presentOpen={presentOpen}
+                onPresentClose={closePresent}
+              />
             )}
             {selectedClientId && clientTab === 'training' && (
               <TrainingTab clientId={selectedClientId} />

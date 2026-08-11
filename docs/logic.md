@@ -1965,3 +1965,79 @@ unset. The banner printed, no `[Scheduler] Started` line appeared, `/health`
 returned `{"status":"ok","scheduler":"off"}`, and twelve seconds of running
 produced no scheduler activity at all - the five-second startup burst that would
 previously have sent the queue never happened.
+
+## Check-in Mode - the presentation view (August 2026)
+
+The Coach Portal Overview was built to hold data, and it holds it well. But the
+Overview is not what a check-in Loom needs. Recording against it meant scrolling
+between six sections, and every trend on the page - the 8-week bars behind each
+score, the total score line, every chart tooltip - only rendered on
+`onMouseEnter`. Hover content is effectively invisible on a screen recording: it
+flickers, it follows a wobbling cursor, and it is gone before a viewer reads it.
+So the most useful numbers in the portal were the ones clients never saw.
+
+Check-in Mode (`frontend/src/components/CheckinMode.js`) is a full-screen view
+that sits over the Overview and presents the same data as five fixed panels,
+stepped through with the keyboard:
+
+1. **The week** - total score, band label, week-over-week delta, the 7 category
+   scores, and the total-score trend **pinned open rather than hovered**.
+2. **What you told me** - the answered follow-ups, biggest win, help request and
+   upcoming notes, at sizes that survive video compression.
+3. **The numbers** - weight trajectory with its band, steps, sleep, and the
+   3-week average weight comparison.
+4. **The work** - the last 14 days as a grid, plus strength counts and cardio.
+5. **This week's focus** - the focus editor, full width.
+
+Opened with the header button or `P`, closed with `Esc`. Arrow keys, space and
+`1`-`5` move between panels.
+
+### Decisions worth recording
+
+**No new endpoints.** Every panel is built from data `ClientOverviewTab` has
+already fetched and passes down as props. Opening the mode costs nothing except
+the calendar fetch below.
+
+**The 14-day strip fetches its own months.** The Overview only ever holds the
+single month its calendar is showing, so a 14-day window opened early in a month
+would have been half empty. On open, Check-in Mode fetches every month the
+window touches (one or two requests, in parallel) and merges them over whatever
+the Overview already had, so the strip is seeded instantly and then completes.
+Step counts come from `health`, which the calendar does not carry; everything
+else comes from the calendar days.
+
+**Dates are anchored at midday UTC.** `lastNDays` walks back in 86,400,000ms
+steps from `T12:00:00Z`. Anchoring at midnight would let an Irish summer-time
+switch roll a date backwards by an hour and drop or duplicate a day.
+
+**Deltas compare check-ins, not calendar weeks.** The delta on each score is
+`checkins[checkinIndex]` against `checkins[checkinIndex + 1]` - the two most
+recent submissions, whichever weeks they landed in. A client who skips a week
+gets a real comparison rather than a blank.
+
+**The trend is truncated to the check-in on screen.** When an older check-in is
+selected, `scoreTrend` is sliced to end at that week, so a past week is never
+shown alongside data the client had not produced yet.
+
+**Score colours are tinted cards, not solid fills.** The Overview's filled
+circles put white text on `#fcd34d`, which fails contrast badly and turns to
+mush under video compression. Check-in Mode uses a light tint with dark ink of
+the same hue, plus a colour bar on top. Same traffic-light read, legible on a
+phone. Stress stays inverted (`11 - value`) as everywhere else.
+
+**Band maths moved to `frontend/src/components/shared/trajectory.js`.** The
+trajectory band was calculated inline in `ClientOverviewTab`. Both views now
+call `buildTrajectoryChart`, so the Overview chart and the Check-in Mode chart
+cannot drift apart on how a band is drawn.
+
+**Focus edits write through the existing endpoint.** The panel 5 textarea saves
+to `PUT /api/overview/:id/focus` on the same 800ms debounce as the Overview's
+focus box, then calls back so the Overview behind it re-fetches and the two
+never disagree.
+
+**Escape is two-stage.** In the focus field, `Esc` blurs the textarea; pressed
+again it exits the mode. Otherwise a mistyped note would close the whole
+presentation mid-recording.
+
+Page scroll is locked while the mode is open, and the keyboard hints fade after
+four seconds so they are not sitting in the recording, returning on mouse move.

@@ -255,6 +255,52 @@
   background: var(--color-off-white);
 }
 
+/* Labelled rather than icon-only: this is the button that starts a recording,
+   so it should be the one thing in the header you cannot mistake. */
+.client-header__present-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 14px;
+  margin-right: var(--space-2);
+  color: var(--color-teal);
+  background: var(--color-off-white);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.client-header__present-trigger:hover:not(:disabled) {
+  background: var(--color-white);
+  border-color: var(--color-teal);
+  color: var(--color-teal-bright);
+}
+
+.client-header__present-trigger:active:not(:disabled) {
+  transform: scale(0.97);
+  transition: transform 80ms ease;
+}
+
+.client-header__present-trigger:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.client-header__present-label {
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .client-header__present-label { display: none; }
+  .client-header__present-trigger { padding: 0 10px; }
+}
+
 .client-header__loom-trigger {
   position: relative;
   width: 36px;

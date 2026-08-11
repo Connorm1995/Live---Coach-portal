@@ -62,7 +62,7 @@ const PHASE_COLORS = {
   maintenance: { bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' },
 };
 
-function ClientHeader({ client, onHubToggle, onLoomOpen, onPhaseChange, onTimezoneChange, tabs, activeClientTab, onClientTabChange }) {
+function ClientHeader({ client, onHubToggle, onLoomOpen, onPresentOpen, onPhaseChange, onTimezoneChange, tabs, activeClientTab, onClientTabChange }) {
   const [phaseOpen, setPhaseOpen] = useState(false);
   const [tzOpen, setTzOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -201,6 +201,27 @@ function ClientHeader({ client, onHubToggle, onLoomOpen, onPhaseChange, onTimezo
             ))}
           </nav>
         )}
+        <button
+          className="client-header__present-trigger"
+          aria-label="Check-in Mode"
+          data-tooltip="Check-in Mode (P)"
+          onClick={onPresentOpen}
+          disabled={!client}
+        >
+          {/* Presentation screen with a play mark */}
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect x="2" y="3" width="16" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            <path d="M10 14v3M7 17h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M8.5 6.5l3.5 2-3.5 2z" fill="currentColor" />
+          </svg>
+          <span className="client-header__present-label">Check-in Mode</span>
+        </button>
         <button
           className="client-header__loom-trigger"
           aria-label="Send Loom Feedback"

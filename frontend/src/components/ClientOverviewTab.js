@@ -6,6 +6,8 @@ import {
 import {
   ScoreBlock, TotalBadge, cycleToMonday, cycleToMondayISO,
 } from './shared/ScoreBlocks';
+import { PHASE_LABELS, buildTrajectoryChart } from './shared/trajectory';
+import CheckinMode from './CheckinMode';
 import './ClientOverviewTab.css';
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
@@ -97,16 +99,6 @@ const CHECKIN_TYPE_LABELS = {
 
 const BLOCK_LABELS = ['Overall', 'Training', 'Steps', 'Nutrition', 'Sleep', 'Digestion', 'Stress'];
 const BLOCK_KEYS = ['overall', 'training', 'steps', 'nutrition', 'sleep', 'digestion', 'stress'];
-
-// ─── Trajectory constants ──────────────────────────────────────────
-
-const PHASE_LABELS = { fat_loss: 'Fat Loss', building: 'Building', recomp: 'Recomp', maintenance: 'Maintenance' };
-const PHASE_COLORS = {
-  fat_loss:    { stroke: 'var(--color-red)',   fill: 'rgba(239, 68, 68, 0.12)' },
-  building:    { stroke: 'var(--color-green)', fill: 'rgba(34, 197, 94, 0.12)' },
-  recomp:      { stroke: 'var(--color-teal)',  fill: 'rgba(35, 184, 184, 0.12)' },
-  maintenance: { stroke: 'var(--color-teal)',  fill: 'rgba(35, 184, 184, 0.12)' },
-};
 
 // ─── ChartTooltip ──────────────────────────────────────────────────
 
@@ -1095,63 +1087,8 @@ function WeightTrajectorySection({ data, onRangeChange, weightRange, clientId, o
     onSettingsChanged();
   };
 
-  // Build overlay band data
-  let chartData = entries || [];
-  let hasBand = false;
-  const colors = trajectory ? PHASE_COLORS[trajectory.phaseType] : null;
-
-  if (trajectory && entries && entries.length > 0) {
-    const isRatePhase = trajectory.phaseType === 'fat_loss' || trajectory.phaseType === 'building';
-
-    if (isRatePhase && trajectory.minRate != null && trajectory.maxRate != null) {
-      const startEntry = entries.find(e => e.date >= trajectory.startDate);
-      if (startEntry) {
-        const startWeight = startEntry.weight;
-        const sign = trajectory.phaseType === 'building' ? 1 : -1;
-        const startMs = new Date(trajectory.startDate + 'T00:00:00Z').getTime();
-
-        chartData = entries.map(e => {
-          const inRange = e.date >= trajectory.startDate && (!trajectory.endDate || e.date <= trajectory.endDate);
-          if (!inRange) return { ...e, bandMin: null, bandMax: null, bandDelta: null };
-          const weeks = (new Date(e.date + 'T00:00:00Z').getTime() - startMs) / (7 * 24 * 60 * 60 * 1000);
-          const bMin = Number((startWeight + sign * trajectory.minRate * weeks).toFixed(1));
-          const bMax = Number((startWeight + sign * trajectory.maxRate * weeks).toFixed(1));
-          const lo = Math.min(bMin, bMax);
-          const hi = Math.max(bMin, bMax);
-          return { ...e, bandMin: lo, bandMax: hi, bandDelta: Number((hi - lo).toFixed(1)) };
-        });
-        hasBand = chartData.some(d => d.bandMin != null);
-      }
-    } else if (!isRatePhase && trajectory.lowerBand != null && trajectory.upperBand != null) {
-      chartData = entries.map(e => {
-        const inRange = e.date >= trajectory.startDate && (!trajectory.endDate || e.date <= trajectory.endDate);
-        if (!inRange) return { ...e, bandMin: null, bandMax: null, bandDelta: null };
-        const lo = Math.min(trajectory.lowerBand, trajectory.upperBand);
-        const hi = Math.max(trajectory.lowerBand, trajectory.upperBand);
-        return { ...e, bandMin: lo, bandMax: hi, bandDelta: Number((hi - lo).toFixed(1)) };
-      });
-      hasBand = chartData.some(d => d.bandMin != null);
-    }
-  }
-
-  const yValues = chartData.flatMap(d => [d.weight, d.bandMin, d.bandMax].filter(v => v != null));
-  const yDomain = yValues.length > 0
-    ? [Math.floor(Math.min(...yValues) - 1), Math.ceil(Math.max(...yValues) + 1)]
-    : ['auto', 'auto'];
-
-  let legendText = null;
-  if (trajectory) {
-    const label = PHASE_LABELS[trajectory.phaseType];
-    const from = fmtShort(trajectory.startDate);
-    const to = trajectory.endDate ? fmtShort(trajectory.endDate) : 'ongoing';
-    const isRatePhase = trajectory.phaseType === 'fat_loss' || trajectory.phaseType === 'building';
-    if (isRatePhase) {
-      const verb = trajectory.phaseType === 'fat_loss' ? 'loss' : 'gain';
-      legendText = `${label} phase: ${from} to ${to} - target ${trajectory.minRate} to ${trajectory.maxRate} kg/week ${verb}`;
-    } else {
-      legendText = `${label} phase: ${from} to ${to} - target band ${trajectory.lowerBand} to ${trajectory.upperBand} kg`;
-    }
-  }
+  // Band maths lives in shared/trajectory.js so Check-in Mode draws it identically
+  const { chartData, hasBand, yDomain, colors, legendText } = buildTrajectoryChart(entries, trajectory);
 
   return (
     <div className="client-overview__chart-section">
@@ -1361,7 +1298,7 @@ function WeightComparisonSection({ data }) {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 
-function ClientOverviewTab({ clientId }) {
+function ClientOverviewTab({ clientId, client, presentOpen, onPresentClose }) {
   // --- Section-level state ---
   const [summaryData, setSummaryData] = useState(null);   // { checkins, scoreTrend, allFocus, focus, weightComparison }
   const [calendarData, setCalendarData] = useState(null);  // { days: [...] }
@@ -1518,6 +1455,21 @@ function ClientOverviewTab({ clientId }) {
 
   return (
     <div className="client-overview">
+      {/* Full-screen presentation view for recording the check-in */}
+      <CheckinMode
+        isOpen={!!presentOpen}
+        onClose={onPresentClose}
+        clientId={clientId}
+        client={client}
+        summaryData={summaryData}
+        weightData={weightData}
+        healthData={healthData}
+        complianceData={complianceData}
+        calendarData={calendarData}
+        checkinIndex={checkinIndex}
+        onFocusSaved={fetchSummary}
+      />
+
       {/* Two-column layout: check-in left, calendar right */}
       <div className="client-overview__columns">
         <div className="client-overview__left">
