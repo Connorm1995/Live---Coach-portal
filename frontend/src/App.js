@@ -21,6 +21,8 @@ const CLIENT_TABS = [
   { key: 'recovery', label: 'Recovery' },
 ];
 
+const CLIENT_TAB_KEYS = new Set(CLIENT_TABS.map(tab => tab.key));
+
 const COACH_TABS = [
   { key: 'clients', label: 'Clients' },
   { key: 'messages', label: 'Messages' },
@@ -119,7 +121,9 @@ function App() {
 
   const handleSelectClient = useCallback((clientId, defaultTab) => {
     setSelectedClientId(clientId);
-    if (defaultTab) setClientTab(defaultTab);
+    // A tab key that no longer exists matches nothing in the render below, so the
+    // content area would go blank with no tab highlighted. Fall back to Overview.
+    if (defaultTab) setClientTab(CLIENT_TAB_KEYS.has(defaultTab) ? defaultTab : 'overview');
     setHubOpen(false);
     setActiveTab('client');
     // Warm the cache for this client's Overview data in the background

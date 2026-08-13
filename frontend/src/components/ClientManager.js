@@ -171,7 +171,7 @@ function ClientManager({ onSelectClient }) {
             <span className="cm__col cm__col--name">
               <button
                 className="cm__name-link"
-                onClick={() => onSelectClient && onSelectClient(client.id, 'calendar')}
+                onClick={() => onSelectClient && onSelectClient(client.id, 'overview')}
                 title={`View ${client.name}`}
               >
                 {client.name}
