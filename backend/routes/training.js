@@ -2,6 +2,11 @@ const express = require('express');
 const pool = require('../db/pool');
 const { trainerizePost: tzPost } = require('../lib/trainerize');
 const store = require('../lib/trainerize-store');
+const {
+  MODES, ALL_MODES, MODE_LABELS, SIGNAL_CRITICAL,
+  summariseExerciseShapes, suggestMode, bodyweightOn,
+} = require('../lib/exercise-load');
+const { buildProgressSeries, STATES } = require('../lib/exercise-progress');
 
 const router = express.Router();
 const COACH_ID = 1;
@@ -1103,6 +1108,219 @@ router.post('/:id/data-flag', async (req, res) => {
   } catch (err) {
     console.error('[Training] Data flag toggle error:', err.message);
     res.status(500).json({ error: 'Failed to toggle data flag' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// EXERCISE LOAD MODES + PROGRESSION
+// ---------------------------------------------------------------------------
+
+async function getLoadModes() {
+  const r = await pool.query(
+    `SELECT exercise_name, mode FROM exercise_load_modes WHERE coach_id = $1`,
+    [COACH_ID]
+  );
+  const map = {};
+  for (const row of r.rows) map[row.exercise_name] = row.mode;
+  return map;
+}
+
+async function getBodyweightEntries(clientId) {
+  const r = await pool.query(
+    `SELECT date::text AS date, body_weight FROM client_body_stats
+     WHERE client_id = $1 AND coach_id = $2 AND body_weight IS NOT NULL`,
+    [clientId, COACH_ID]
+  );
+  return r.rows.map(row => ({ date: row.date, weight: Number(row.body_weight) }));
+}
+
+// Pull every logged instance of every exercise for a client, oldest first.
+async function getExerciseInstances(clientId) {
+  const r = await pool.query(
+    `SELECT date::text AS date, trainerize_id, detail_json
+     FROM client_workouts
+     WHERE client_id = $1 AND coach_id = $2 AND detail_json IS NOT NULL AND status = 'tracked'
+     ORDER BY date ASC`,
+    [clientId, COACH_ID]
+  );
+
+  const byName = new Map();
+  for (const w of r.rows) {
+    for (const ex of (w.detail_json?.exercises || [])) {
+      const name = ex.def?.name;
+      if (!name) continue;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push({
+        date: w.date,
+        workoutId: w.trainerize_id,
+        recordType: ex.def?.recordType,
+        stats: ex.stats || [],
+      });
+    }
+  }
+  return byName;
+}
+
+// GET /:id/exercise-modes - every exercise this client does, with its mode or a
+// suggestion. Suggestions are never applied on their own: on the bodyweight
+// family a wrong mode inverts the direction of progress, so it stays unset until
+// the coach confirms.
+router.get('/:id/exercise-modes', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [byName, modes] = await Promise.all([getExerciseInstances(id), getLoadModes()]);
+
+    const items = [];
+    for (const [name, instances] of byName) {
+      const summary = summariseExerciseShapes(instances);
+      const suggestion = suggestMode(name, summary);
+      const mode = modes[name] || null;
+      items.push({
+        exerciseName: name,
+        mode,
+        modeLabel: mode ? MODE_LABELS[mode] : null,
+        suggestion,
+        signalCritical: SIGNAL_CRITICAL.includes(suggestion.mode) || SIGNAL_CRITICAL.includes(mode),
+        instances: summary.total,
+        logged: summary.logged,
+        notLogged: summary.empty,
+        shapes: summary.shapes,
+        shapeCount: summary.shapeCount,
+        weightIsIntermittent: summary.weightIsIntermittent,
+        lastDate: instances[instances.length - 1]?.date || null,
+      });
+    }
+
+    // Unset and signal-critical first, then by how much data rides on it.
+    items.sort((a, b) => {
+      if (!a.mode !== !b.mode) return a.mode ? 1 : -1;
+      if (a.signalCritical !== b.signalCritical) return a.signalCritical ? -1 : 1;
+      return b.instances - a.instances;
+    });
+
+    res.json({
+      items,
+      modes: ALL_MODES.map(m => ({ value: m, label: MODE_LABELS[m] })),
+      unsetCount: items.filter(i => !i.mode).length,
+      criticalUnsetCount: items.filter(i => !i.mode && i.signalCritical).length,
+    });
+  } catch (err) {
+    console.error('[Training] exercise-modes error:', err.message);
+    res.status(500).json({ error: 'Failed to load exercise modes' });
+  }
+});
+
+// PUT /:id/exercise-modes - save confirmed modes. Modes are per coach, not per
+// client: an assisted pull-up means the same thing for everybody.
+router.put('/:id/exercise-modes', async (req, res) => {
+  const { modes } = req.body || {};
+  if (!Array.isArray(modes) || modes.length === 0) {
+    return res.status(400).json({ error: 'modes array is required' });
+  }
+  const invalid = modes.find(m => !m.exerciseName || !ALL_MODES.includes(m.mode));
+  if (invalid) {
+    return res.status(400).json({ error: `Invalid mode for "${invalid.exerciseName || 'unnamed'}"` });
+  }
+
+  try {
+    for (const m of modes) {
+      await pool.query(
+        `INSERT INTO exercise_load_modes (coach_id, exercise_name, mode, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (coach_id, exercise_name)
+         DO UPDATE SET mode = EXCLUDED.mode, updated_at = now()`,
+        [COACH_ID, m.exerciseName, m.mode]
+      );
+    }
+    res.json({ ok: true, saved: modes.length });
+  } catch (err) {
+    console.error('[Training] save exercise-modes error:', err.message);
+    res.status(500).json({ error: 'Failed to save exercise modes' });
+  }
+});
+
+// GET /:id/progression - per-exercise progression on one load scale.
+router.get('/:id/progression', async (req, res) => {
+  const { id } = req.params;
+  const { since } = req.query; // optional YYYY-MM-DD
+
+  try {
+    const [byName, modes, bwEntries] = await Promise.all([
+      getExerciseInstances(id), getLoadModes(), getBodyweightEntries(id),
+    ]);
+    const bodyweightFor = (d) => bodyweightOn(d, bwEntries);
+
+    const exercises = [];
+    const needsMode = [];
+
+    for (const [name, allInstances] of byName) {
+      const mode = modes[name] || null;
+      const instances = since ? allInstances.filter(i => i.date >= since) : allInstances;
+      if (instances.length === 0) continue;
+
+      if (!mode) {
+        const summary = summariseExerciseShapes(allInstances);
+        needsMode.push({
+          exerciseName: name,
+          instances: instances.length,
+          suggestion: suggestMode(name, summary),
+        });
+        continue;
+      }
+      if (mode === MODES.IGNORE || mode === MODES.CARDIO) continue;
+
+      const points = buildProgressSeries({ mode, instances, bodyweightFor });
+      const logged = points.filter(p => p.logged);
+      if (logged.length === 0) continue;
+
+      const verdicts = points.filter(p => p.comparison.state !== STATES.NOT_COMPARABLE);
+      const latest = [...points].reverse().find(p => p.logged) || null;
+
+      exercises.push({
+        exerciseName: name,
+        mode,
+        modeLabel: MODE_LABELS[mode],
+        sessions: points.length,
+        loggedSessions: logged.length,
+        skippedSessions: points.length - logged.length,
+        comparableCount: verdicts.length,
+        latest: latest ? {
+          date: latest.date,
+          summary: latest.comparison.summary,
+          state: latest.comparison.state,
+          reason: latest.comparison.reason,
+          longGap: latest.comparison.longGap || false,
+          gapDays: latest.comparison.gapDays ?? null,
+        } : null,
+        points: points.map(p => ({
+          date: p.date,
+          logged: p.logged,
+          topLoad: p.metrics.topLoad,
+          repsAtTopLoad: p.metrics.repsAtTopLoad,
+          totalReps: p.metrics.totalReps,
+          totalTime: p.metrics.totalTime,
+          addedMax: p.metrics.addedMax,
+          assistMin: p.metrics.assistMin,
+          bodyweightKg: p.metrics.bodyweightKg,
+          setCount: p.metrics.setCount,
+          resolvedCount: p.metrics.resolvedCount,
+          unresolvedReasons: p.metrics.unresolvedReasons,
+          state: p.comparison.state,
+          reason: p.comparison.reason,
+          summary: p.comparison.summary,
+          longGap: p.comparison.longGap || false,
+        })),
+      });
+    }
+
+    // Most sessions first, so the movements the block is actually built on lead.
+    exercises.sort((a, b) => b.loggedSessions - a.loggedSessions);
+    needsMode.sort((a, b) => b.instances - a.instances);
+
+    res.json({ exercises, needsMode });
+  } catch (err) {
+    console.error('[Training] progression error:', err.message);
+    res.status(500).json({ error: 'Failed to build progression' });
   }
 });
 

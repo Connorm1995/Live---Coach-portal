@@ -2041,3 +2041,96 @@ presentation mid-recording.
 
 Page scroll is locked while the mode is open, and the keyboard hints fade after
 four seconds so they are not sitting in the recording, returning on mouse move.
+
+## Training progression on one load scale (August 2026)
+
+### The problem
+
+Progress was read off `weight x reps`. Across 9,384 tracked workouts and 481
+distinct exercises, that is wrong or meaningless for most of the programs:
+
+- **85 exercises, 7,178 logged instances, log reps only.** Chin-ups, push-ups,
+  pull-ups, inverted rows. They carry `recordType: strength`, so they passed the
+  filter into `calcTotalVolume` and then contributed `0 x reps = 0`. Sessions
+  built on them reported near-zero volume while the per-exercise cells went
+  green, so the same screen contradicted itself.
+- **Assisted movements reported backwards.** On an assist machine or band the
+  logged number is the ASSISTANCE. Volume was computed as `assistance x reps`,
+  so a client dropping from 40kg to 30kg of help - a clear progression - showed
+  a volume fall and coloured red. Roughly 518 logged instances.
+- **Loaded carries discarded the load.** `Single arm farmers carry` is
+  `timedStrength`, which `classifyExercise` matched before it looked at weight,
+  so 32kg for 40s and 24kg for 40s compared as identical.
+- **Exercise type was decided by whichever session loaded first**, with a
+  one-way bodyweight to weighted upgrade and no way back. `Plank` is logged six
+  different ways across 811 instances; `Neutral grip chin up` 561 times without
+  weight and 186 with. One arbitrary session set the rule for all the others,
+  and once a dip belt appeared, every later bodyweight session compared against
+  it at zero volume and read as a regression.
+
+### The rule now
+
+Load is resolved per set, on one kilogram scale, from the movement's load mode:
+
+| Mode | Load |
+|---|---|
+| `external` | logged weight |
+| `bodyweight` | bodyweight |
+| `bodyweight_added` | bodyweight + logged weight |
+| `bodyweight_assisted` | bodyweight - logged weight |
+| `reps_only`, `timed`, `timed_loaded`, `cardio`, `ignore` | no single load figure |
+
+This is arithmetic, not modelling. There is no estimated 1RM anywhere: those
+equations assume a set taken to failure, and under the RIR method reps in
+reserve float by design and are not recorded, so the same logged numbers could
+sit 10kg apart in true capacity. That is a presumption, not an estimate, so it
+is not calculated.
+
+### Mode is set by the coach, never inferred
+
+`exercise_load_modes` (coach_id, exercise_name, mode) holds the answer.
+`suggestMode` produces a suggestion with a confidence and a reason, but it never
+applies itself, and an exercise with no mode is left out of progression rather
+than guessed at. The reason is that `bodyweight_added` and `bodyweight_assisted`
+put a number in the same field with opposite meaning, so a wrong guess inverts
+the result on exactly the movements it matters most for. "Assisted Single Leg
+RDL" is the worked example: the name matches the assisted pattern, but the
+logged weight there is the dumbbell, not assistance.
+
+The setup panel pre-selects only high-confidence, non-signal-critical
+suggestions. The bodyweight family is deliberately left blank so a single click
+cannot bulk-accept a hundred guesses. 26 exercises across the roster fall in the
+signal-critical group.
+
+### Bodyweight lookup
+
+Nearest weigh-in within 7 days of the session, otherwise nothing. Reaching
+further back would put a fake load on every bodyweight movement. Coverage is
+89.2% of bodyweight-family instances.
+
+### Comparison
+
+Each mode declares its own primary variable, because the coached variable
+differs: load on a barbell row, reps on a pull-up (bodyweight drifts on its own,
+so calling a 0.4kg weigh-in change "load down" would be noise), assistance going
+down on an assist machine. Where the primary variable holds, reps at the top
+load are the tie-break, which is what double progression looks like.
+
+States are named for what changed, not whether it was good - `load_up`,
+`reps_down`, `assist_down`, `held` - and a reduction is styled as worth-a-look
+rather than as failure, because under autoregulation a lighter session is often
+the right call.
+
+Two things the old colouring got wrong are now explicit:
+
+- **Sessions where the exercise was programmed but nothing logged** are kept in
+  the series marked `logged: false` and stepped over when comparing. Treating a
+  blank as a light session produced a false regression and then a false gain the
+  week after.
+- **Comparisons across more than 21 days** are still made but flagged
+  `longGap`, so a comeback session is not read as a week-on-week move.
+
+When no honest comparison exists the result is `not_comparable` with a reason,
+never a fabricated verdict. Across the full history 78% of comparisons produce a
+verdict; the remaining 22% break down as sessions not logged, first session of a
+series, no weight logged, assistance not logged, and no weigh-in near the date.

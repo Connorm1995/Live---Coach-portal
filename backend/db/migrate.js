@@ -531,6 +531,30 @@ async function migrate() {
       );
     `);
 
+    // How an exercise is loaded, so progress can be read on one scale.
+    //
+    // This is set by the coach, never inferred. On an assisted pull-up the
+    // logged weight is the ASSISTANCE, so the load is bodyweight minus that
+    // number; on a weighted pull-up the same field is added load. Guessing
+    // between the two from the exercise name would invert the progress signal
+    // on the movements it matters most for, so an unset exercise stays
+    // unresolved rather than being assumed.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS exercise_load_modes (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        exercise_name VARCHAR NOT NULL,
+        mode VARCHAR NOT NULL,
+        note TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(coach_id, exercise_name)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_exercise_load_modes_coach
+      ON exercise_load_modes(coach_id);
+    `);
+
     await client.query('COMMIT');
     console.log('Migration complete.');
   } catch (err) {

@@ -3,6 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from 'recharts';
+import ExerciseProgress from './ExerciseProgress';
 import './TrainingTab.css';
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
@@ -709,6 +710,7 @@ function TrainingTab({ clientId }) {
   return (
     <div className="training-tab">
       <SessionCalendar data={calendarData} range={calendarRange} />
+      <ExerciseProgress clientId={clientId} />
       <KeyLiftsTracker clientId={clientId} />
       <BlockProgress clientId={clientId} />
     </div>
