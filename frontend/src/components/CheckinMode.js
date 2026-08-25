@@ -132,16 +132,16 @@ function fmtDay(dateStr) {
 function Delta({ value, invert, suffix }) {
   // No previous check-in to compare against is not the same as no change, and
   // showing "Level" for both was misreading a first week as a flat one.
-  if (value == null) return <span className="cm-delta cm-delta--none" />;
+  if (value == null) return <span className="checkin-mode-delta checkin-mode-delta--none" />;
   if (value === 0) {
-    return <span className="cm-delta cm-delta--flat">Level</span>;
+    return <span className="checkin-mode-delta checkin-mode-delta--flat">Level</span>;
   }
   const good = invert ? value < 0 : value > 0;
   const sign = value > 0 ? '+' : '';
   return (
     // The arrow follows the direction the number moved, the colour says whether
     // that was good. Tying the arrow to "good" pointed a weight loss upwards.
-    <span className={`cm-delta ${good ? 'cm-delta--up' : 'cm-delta--down'}`}>
+    <span className={`checkin-mode-delta ${good ? 'checkin-mode-delta--up' : 'checkin-mode-delta--down'}`}>
       {value > 0 ? '▲' : '▼'} {sign}{value}{suffix || ''}
     </span>
   );
@@ -162,15 +162,15 @@ function TrendDot({ cx, cy, payload, dataKey, stroke }) {
 
 function PanelHeading({ children, sub }) {
   return (
-    <div className="cm-panel__heading">
-      <h2 className="cm-panel__title">{children}</h2>
-      {sub && <span className="cm-panel__sub">{sub}</span>}
+    <div className="checkin-mode-panel__heading">
+      <h2 className="checkin-mode-panel__title">{children}</h2>
+      {sub && <span className="checkin-mode-panel__sub">{sub}</span>}
     </div>
   );
 }
 
 function Empty({ children }) {
-  return <div className="cm-empty">{children}</div>;
+  return <div className="checkin-mode-empty">{children}</div>;
 }
 
 // ─── Panel 1: The week ──────────────────────────────────────────────
@@ -185,16 +185,16 @@ function WeekPanel({ checkin, previous, trend }) {
   if (!scores) return <Empty>No scores on this check-in.</Empty>;
 
   return (
-    <div className="cm-week">
-      <div className="cm-week__top">
-        <div className="cm-week__total" style={{ background: tone.bg }}>
-          <div className="cm-week__total-line">
-            <span className="cm-week__total-value" style={{ color: tone.fg }}>{total ?? '-'}</span>
-            <span className="cm-week__total-max">/45</span>
+    <div className="checkin-mode-week">
+      <div className="checkin-mode-week__top">
+        <div className="checkin-mode-week__total" style={{ background: tone.bg }}>
+          <div className="checkin-mode-week__total-line">
+            <span className="checkin-mode-week__total-value" style={{ color: tone.fg }}>{total ?? '-'}</span>
+            <span className="checkin-mode-week__total-max">/45</span>
           </div>
-          <span className="cm-week__total-band" style={{ color: tone.fg }}>{totalBand(total)}</span>
+          <span className="checkin-mode-week__total-band" style={{ color: tone.fg }}>{totalBand(total)}</span>
           {totalDelta != null && (
-            <span className="cm-week__total-delta">
+            <span className="checkin-mode-week__total-delta">
               {totalDelta === 0
                 ? 'Same as last check-in'
                 : <><Delta value={totalDelta} /> on last check-in</>}
@@ -202,8 +202,8 @@ function WeekPanel({ checkin, previous, trend }) {
           )}
         </div>
 
-        <div className="cm-week__trend">
-          <span className="cm-week__trend-label">Total score, last {trend.length} check-ins</span>
+        <div className="checkin-mode-week__trend">
+          <span className="checkin-mode-week__trend-label">Total score, last {trend.length} check-ins</span>
           {trend.length > 1 ? (
             <ResponsiveContainer width="100%" height={210}>
               <LineChart data={trend} margin={{ top: 26, right: 20, bottom: 4, left: 20 }}>
@@ -235,7 +235,7 @@ function WeekPanel({ checkin, previous, trend }) {
         </div>
       </div>
 
-      <div className="cm-week__scores">
+      <div className="checkin-mode-week__scores">
         {SCORE_KEYS.map(key => {
           const value = scores.raw?.[key] ?? null;
           const prevValue = previous?.scores?.raw?.[key] ?? null;
@@ -243,10 +243,10 @@ function WeekPanel({ checkin, previous, trend }) {
           const isStress = key === 'stress';
           const t = toneFor(value, isStress);
           return (
-            <div key={key} className="cm-score" style={{ background: t.bg }}>
-              <span className="cm-score__bar" style={{ background: t.bar }} />
-              <span className="cm-score__label">{SCORE_LABELS[key]}</span>
-              <span className="cm-score__value" style={{ color: t.fg }}>{value ?? '-'}</span>
+            <div key={key} className="checkin-mode-score" style={{ background: t.bg }}>
+              <span className="checkin-mode-score__bar" style={{ background: t.bar }} />
+              <span className="checkin-mode-score__label">{SCORE_LABELS[key]}</span>
+              <span className="checkin-mode-score__value" style={{ color: t.fg }}>{value ?? '-'}</span>
               <Delta value={delta} invert={isStress} />
             </div>
           );
@@ -275,47 +275,47 @@ function WordsPanel({ checkin }) {
     .filter(f => f.value);
 
   return (
-    <div className="cm-words">
+    <div className="checkin-mode-words">
       {chips.length > 0 && (
-        <div className="cm-chips">
+        <div className="checkin-mode-chips">
           {chips.map(c => (
-            <div key={c.label} className="cm-chip">
-              <span className="cm-chip__label">{c.label}</span>
-              <span className="cm-chip__value">{c.value}</span>
+            <div key={c.label} className="checkin-mode-chip">
+              <span className="checkin-mode-chip__label">{c.label}</span>
+              <span className="checkin-mode-chip__value">{c.value}</span>
             </div>
           ))}
         </div>
       )}
 
-      <div className="cm-words__open">
+      <div className="checkin-mode-words__open">
         {OPEN_FIELDS.map(f => (
-          <div key={f.key} className="cm-card">
-            <span className="cm-card__label">{f.label}</span>
+          <div key={f.key} className="checkin-mode-card">
+            <span className="checkin-mode-card__label">{f.label}</span>
             {answers[f.key]
-              ? <p className="cm-card__text">{answers[f.key]}</p>
-              : <p className="cm-card__text cm-card__text--muted">Nothing noted</p>}
+              ? <p className="checkin-mode-card__text">{answers[f.key]}</p>
+              : <p className="checkin-mode-card__text checkin-mode-card__text--muted">Nothing noted</p>}
           </div>
         ))}
       </div>
 
-      <div className="cm-words__issues">
-        <span className="cm-words__issues-label">What went wrong</span>
+      <div className="checkin-mode-words__issues">
+        <span className="checkin-mode-words__issues-label">What went wrong</span>
         {issues.length === 0 ? (
-          <div className="cm-clear">No problem areas flagged this week.</div>
+          <div className="checkin-mode-clear">No problem areas flagged this week.</div>
         ) : (
-          <div className="cm-words__issue-list">
+          <div className="checkin-mode-words__issue-list">
             {issues.map(f => {
               const raw = f.score ? scores?.raw?.[f.score] : null;
               const t = toneFor(raw, f.score === 'stress');
               return (
-                <div key={f.key} className="cm-issue" style={{ borderLeftColor: t.bar, background: t.bg }}>
-                  <div className="cm-issue__head">
-                    <span className="cm-issue__label">{f.label}</span>
+                <div key={f.key} className="checkin-mode-issue" style={{ borderLeftColor: t.bar, background: t.bg }}>
+                  <div className="checkin-mode-issue__head">
+                    <span className="checkin-mode-issue__label">{f.label}</span>
                     {raw != null && (
-                      <span className="cm-issue__score" style={{ color: t.fg }}>{raw}/10</span>
+                      <span className="checkin-mode-issue__score" style={{ color: t.fg }}>{raw}/10</span>
                     )}
                   </div>
-                  <p className="cm-issue__text">{f.value}</p>
+                  <p className="checkin-mode-issue__text">{f.value}</p>
                 </div>
               );
             })}
@@ -359,13 +359,13 @@ function NumbersPanel({ weightData, healthData }) {
     .reverse();
 
   return (
-    <div className="cm-numbers">
-      <div className="cm-numbers__main">
-        <div className="cm-block">
-          <div className="cm-block__head">
-            <span className="cm-block__title">Weight trajectory</span>
+    <div className="checkin-mode-numbers">
+      <div className="checkin-mode-numbers__main">
+        <div className="checkin-mode-block">
+          <div className="checkin-mode-block__head">
+            <span className="checkin-mode-block__title">Weight trajectory</span>
             {position && (
-              <span className="cm-block__flag">{BAND_POSITION_TEXT[position]}</span>
+              <span className="checkin-mode-block__flag">{BAND_POSITION_TEXT[position]}</span>
             )}
           </div>
           {(!entries || entries.length === 0) ? (
@@ -402,9 +402,9 @@ function NumbersPanel({ weightData, healthData }) {
                 </ComposedChart>
               </ResponsiveContainer>
               {legendText && (
-                <div className="cm-legend">
-                  <span className="cm-legend__swatch" style={{ background: colors.fill.replace('0.12', '0.4') }} />
-                  <span className="cm-legend__text">{legendText}</span>
+                <div className="checkin-mode-legend">
+                  <span className="checkin-mode-legend__swatch" style={{ background: colors.fill.replace('0.12', '0.4') }} />
+                  <span className="checkin-mode-legend__text">{legendText}</span>
                 </div>
               )}
             </>
@@ -412,7 +412,7 @@ function NumbersPanel({ weightData, healthData }) {
         </div>
 
         {weeks.length > 0 && (
-          <div className="cm-avgs">
+          <div className="checkin-mode-avgs">
             {weeks.map((w, i) => {
               let delta = null;
               if (i > 0 && weeks[i - 1].average != null && w.average != null) {
@@ -421,15 +421,15 @@ function NumbersPanel({ weightData, healthData }) {
               return (
                 <React.Fragment key={w.label}>
                   {i > 0 && (
-                    <div className="cm-avgs__delta">
-                      {delta != null ? <Delta value={delta} invert suffix=" kg" /> : <span className="cm-delta cm-delta--flat">-</span>}
+                    <div className="checkin-mode-avgs__delta">
+                      {delta != null ? <Delta value={delta} invert suffix=" kg" /> : <span className="checkin-mode-delta checkin-mode-delta--flat">-</span>}
                     </div>
                   )}
-                  <div className="cm-avgs__box">
-                    <span className="cm-avgs__label">{w.label}</span>
-                    <span className="cm-avgs__value">{w.average != null ? `${w.average} kg` : 'No data'}</span>
+                  <div className="checkin-mode-avgs__box">
+                    <span className="checkin-mode-avgs__label">{w.label}</span>
+                    <span className="checkin-mode-avgs__value">{w.average != null ? `${w.average} kg` : 'No data'}</span>
                     {w.count > 0 && (
-                      <span className="cm-avgs__detail">{w.count} day{w.count !== 1 ? 's' : ''} logged</span>
+                      <span className="checkin-mode-avgs__detail">{w.count} day{w.count !== 1 ? 's' : ''} logged</span>
                     )}
                   </div>
                 </React.Fragment>
@@ -439,12 +439,12 @@ function NumbersPanel({ weightData, healthData }) {
         )}
       </div>
 
-      <div className="cm-numbers__side">
-        <div className="cm-block">
-          <div className="cm-block__head">
-            <span className="cm-block__title">Steps</span>
+      <div className="checkin-mode-numbers__side">
+        <div className="checkin-mode-block">
+          <div className="checkin-mode-block__head">
+            <span className="checkin-mode-block__title">Steps</span>
             {hasSteps && steps?.average != null && (
-              <span className="cm-block__flag">Avg {steps.average.toLocaleString()}</span>
+              <span className="checkin-mode-block__flag">Avg {steps.average.toLocaleString()}</span>
             )}
           </div>
           {!hasSteps ? (
@@ -463,13 +463,13 @@ function NumbersPanel({ weightData, healthData }) {
             </ResponsiveContainer>
           )}
           {hasSteps && steps?.target && (
-            <span className="cm-block__foot">Dashed line is the {steps.target.toLocaleString()} step target</span>
+            <span className="checkin-mode-block__foot">Dashed line is the {steps.target.toLocaleString()} step target</span>
           )}
         </div>
 
-        <div className="cm-block">
-          <div className="cm-block__head">
-            <span className="cm-block__title">Sleep</span>
+        <div className="checkin-mode-block">
+          <div className="checkin-mode-block__head">
+            <span className="checkin-mode-block__title">Sleep</span>
           </div>
           {!hasSleep ? (
             <Empty>No sleep data for this client.</Empty>
@@ -484,7 +484,7 @@ function NumbersPanel({ weightData, healthData }) {
               </BarChart>
             </ResponsiveContainer>
           )}
-          {hasSleep && <span className="cm-block__foot">Dashed line is 7 hours</span>}
+          {hasSleep && <span className="checkin-mode-block__foot">Dashed line is 7 hours</span>}
         </div>
       </div>
     </div>
@@ -560,28 +560,28 @@ function WorkPanel({ dayMap, days, complianceData }) {
   ];
 
   return (
-    <div className="cm-work">
-      <div className="cm-block">
-        <div className="cm-block__head">
-          <span className="cm-block__title">Last {STRIP_DAYS} days</span>
+    <div className="checkin-mode-work">
+      <div className="checkin-mode-block">
+        <div className="checkin-mode-block__head">
+          <span className="checkin-mode-block__title">Last {STRIP_DAYS} days</span>
         </div>
-        <div className="cm-strip" style={{ '--cm-strip-days': days.length }}>
-          <div className="cm-strip__corner" />
+        <div className="checkin-mode-strip" style={{ '--checkin-mode-strip-days': days.length }}>
+          <div className="checkin-mode-strip__corner" />
           {days.map(date => (
-            <div key={`h-${date}`} className={`cm-strip__day${date === todayStr ? ' cm-strip__day--today' : ''}`}>
-              <span className="cm-strip__day-letter">{fmtDayLetter(date)}</span>
-              <span className="cm-strip__day-num">{fmtDayNum(date)}</span>
+            <div key={`h-${date}`} className={`checkin-mode-strip__day${date === todayStr ? ' checkin-mode-strip__day--today' : ''}`}>
+              <span className="checkin-mode-strip__day-letter">{fmtDayLetter(date)}</span>
+              <span className="checkin-mode-strip__day-num">{fmtDayNum(date)}</span>
             </div>
           ))}
           {ROWS.map(row => (
             <React.Fragment key={row.key}>
-              <div className="cm-strip__row-label">{row.label}</div>
+              <div className="checkin-mode-strip__row-label">{row.label}</div>
               {days.map(date => {
                 const cell = cellFor(row.key, date);
                 return (
                   <div
                     key={`${row.key}-${date}`}
-                    className={`cm-strip__cell${cell ? ` cm-strip__cell--${cell.state}` : ' cm-strip__cell--none'}`}
+                    className={`checkin-mode-strip__cell${cell ? ` checkin-mode-strip__cell--${cell.state}` : ' checkin-mode-strip__cell--none'}`}
                     title={cell ? cell.text : undefined}
                   >
                     {cell ? cell.text : ''}
@@ -593,22 +593,22 @@ function WorkPanel({ dayMap, days, complianceData }) {
         </div>
       </div>
 
-      <div className="cm-work__bottom">
-        <div className="cm-block">
-          <div className="cm-block__head">
-            <span className="cm-block__title">Strength sessions per week</span>
+      <div className="checkin-mode-work__bottom">
+        <div className="checkin-mode-block">
+          <div className="checkin-mode-block__head">
+            <span className="checkin-mode-block__title">Strength sessions per week</span>
           </div>
           {strengthWeeks.length === 0 ? (
             <Empty>No strength data.</Empty>
           ) : (
-            <div className="cm-weeks">
+            <div className="checkin-mode-weeks">
               {strengthWeeks.map((w, i) => (
-                <div key={w.weekStart} className="cm-weeks__block">
-                  <div className="cm-weeks__track">
-                    <div className="cm-weeks__fill" style={{ height: `${(w.count / maxStrength) * 100}%` }} />
+                <div key={w.weekStart} className="checkin-mode-weeks__block">
+                  <div className="checkin-mode-weeks__track">
+                    <div className="checkin-mode-weeks__fill" style={{ height: `${(w.count / maxStrength) * 100}%` }} />
                   </div>
-                  <span className="cm-weeks__count">{w.count}</span>
-                  <span className="cm-weeks__label">
+                  <span className="checkin-mode-weeks__count">{w.count}</span>
+                  <span className="checkin-mode-weeks__label">
                     {i === strengthWeeks.length - 1 ? 'This wk' : `${strengthWeeks.length - 1 - i} wk ago`}
                   </span>
                 </div>
@@ -617,21 +617,21 @@ function WorkPanel({ dayMap, days, complianceData }) {
           )}
         </div>
 
-        <div className="cm-block">
-          <div className="cm-block__head">
-            <span className="cm-block__title">Cardio sessions</span>
+        <div className="checkin-mode-block">
+          <div className="checkin-mode-block__head">
+            <span className="checkin-mode-block__title">Cardio sessions</span>
           </div>
           {cardio.length === 0 ? (
             <Empty>No cardio logged.</Empty>
           ) : (
-            <div className="cm-cardio">
+            <div className="checkin-mode-cardio">
               {cardio.slice(0, 8).map((s, i) => {
                 const meta = [fmtDuration(s.durationSeconds), fmtDist(s.distance)].filter(Boolean).join(' / ');
                 return (
-                  <div key={i} className="cm-cardio__row">
-                    <span className="cm-cardio__name">{s.name || 'Cardio'}</span>
-                    {meta && <span className="cm-cardio__meta">{meta}</span>}
-                    <span className="cm-cardio__date">{fmtShort(s.date)}</span>
+                  <div key={i} className="checkin-mode-cardio__row">
+                    <span className="checkin-mode-cardio__name">{s.name || 'Cardio'}</span>
+                    {meta && <span className="checkin-mode-cardio__meta">{meta}</span>}
+                    <span className="checkin-mode-cardio__date">{fmtShort(s.date)}</span>
                   </div>
                 );
               })}
@@ -692,28 +692,28 @@ function FocusPanel({ focus, checkin, clientId, onSaved }) {
   const cues = ISSUE_FIELDS.filter(f => answers[f.key]).map(f => f.label);
 
   return (
-    <div className="cm-focus">
+    <div className="checkin-mode-focus">
       {focus?.previous?.text && (
-        <div className="cm-focus__prev">
-          <span className="cm-focus__prev-label">Last week you asked for</span>
-          <p className="cm-focus__prev-text">{focus.previous.text}</p>
+        <div className="checkin-mode-focus__prev">
+          <span className="checkin-mode-focus__prev-label">Last week you asked for</span>
+          <p className="checkin-mode-focus__prev-text">{focus.previous.text}</p>
         </div>
       )}
 
       <textarea
         ref={areaRef}
-        className="cm-focus__input"
+        className="checkin-mode-focus__input"
         value={text}
         onChange={handleChange}
         placeholder="What are they working on this week?"
         rows={6}
       />
 
-      <div className="cm-focus__foot">
+      <div className="checkin-mode-focus__foot">
         {cues.length > 0 && (
-          <span className="cm-focus__cues">Flagged this week: {cues.join(', ')}</span>
+          <span className="checkin-mode-focus__cues">Flagged this week: {cues.join(', ')}</span>
         )}
-        <span className="cm-focus__save">
+        <span className="checkin-mode-focus__save">
           {saving ? 'Saving...' : savedAt ? 'Saved' : ''}
         </span>
       </div>
@@ -854,23 +854,23 @@ function CheckinMode({
     : 'No check-in';
 
   return (
-    <div className="cm" role="dialog" aria-label="Check-in Mode" aria-modal="true">
-      <header className="cm__bar">
-        <div className="cm__bar-left">
-          <span className="cm__client">{client?.name || 'Client'}</span>
-          <span className="cm__meta">{checkinLabel}</span>
+    <div className="checkin-mode" role="dialog" aria-label="Check-in Mode" aria-modal="true">
+      <header className="checkin-mode__bar">
+        <div className="checkin-mode__bar-left">
+          <span className="checkin-mode__client">{client?.name || 'Client'}</span>
+          <span className="checkin-mode__meta">{checkinLabel}</span>
         </div>
-        <span className="cm__panel-name">{current.label}</span>
-        <div className="cm__bar-right">
-          <span className="cm__count">{panel + 1} / {PANELS.length}</span>
-          <button className="cm__exit" onClick={onClose} aria-label="Exit Check-in Mode">
+        <span className="checkin-mode__panel-name">{current.label}</span>
+        <div className="checkin-mode__bar-right">
+          <span className="checkin-mode__count">{panel + 1} / {PANELS.length}</span>
+          <button className="checkin-mode__exit" onClick={onClose} aria-label="Exit Check-in Mode">
             Exit
-            <span className={`cm__exit-key${hintsVisible ? '' : ' cm__exit-key--dim'}`}>Esc</span>
+            <span className={`checkin-mode__exit-key${hintsVisible ? '' : ' checkin-mode__exit-key--dim'}`}>Esc</span>
           </button>
         </div>
       </header>
 
-      <main className="cm__stage">
+      <main className="checkin-mode__stage">
         <PanelHeading sub={current.key === 'work' ? `To ${fmtShort(dublinToday())} (Dublin time)` : null}>
           {current.label}
         </PanelHeading>
@@ -901,20 +901,20 @@ function CheckinMode({
         )}
       </main>
 
-      <footer className="cm__steps">
+      <footer className="checkin-mode__steps">
         {PANELS.map((p, i) => (
           <button
             key={p.key}
-            className={`cm__step${i === panel ? ' cm__step--active' : ''}${i < panel ? ' cm__step--done' : ''}`}
+            className={`checkin-mode__step${i === panel ? ' checkin-mode__step--active' : ''}${i < panel ? ' checkin-mode__step--done' : ''}`}
             onClick={() => setPanel(i)}
           >
-            <span className="cm__step-bar" />
-            <span className="cm__step-label">{p.label}</span>
+            <span className="checkin-mode__step-bar" />
+            <span className="checkin-mode__step-label">{p.label}</span>
           </button>
         ))}
       </footer>
 
-      <div className={`cm__hints${hintsVisible ? '' : ' cm__hints--hidden'}`}>
+      <div className={`checkin-mode__hints${hintsVisible ? '' : ' checkin-mode__hints--hidden'}`}>
         Arrow keys to move, 1 to 5 to jump, Esc to exit
       </div>
     </div>
