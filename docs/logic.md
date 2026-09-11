@@ -821,6 +821,22 @@ Added July 2026. Standalone Express service in `forms/`, replacing the Typeform 
 - forms/lib/trainerize.js is the only file in MyFitCoach Forms that knows Trainerize exists - swap this connector if the coaching platform ever changes.
 - Verified end to end against the live Trainerize API with a test client (created, synced, then deleted via /user/delete). Trainerize duplicate email returns a 406 which surfaces as a retryable sync failure.
 
+### Onboarding welcome message (September 2026)
+
+**What it does:** As soon as an onboarding submission syncs, MyFitCoach Forms sends the new client Connor's welcome DM in Trainerize (weigh in tomorrow morning, starting photos, connect smart tech, start-up email within 24 hours). The wording lives in `forms/lib/welcome-message.js`; the only variable is the first name. The send itself is `sendMessage()` in `forms/lib/trainerize.js`, the same `/message/send` payload the Coach Portal's reminders use (`mainThread`, `single`, `text`).
+
+**Why it moved off Zapier:** Zapier sent this as part of the Typeform onboarding Zap, 10 minutes after the Trainerize client was created (checked against Cian Mcloughlin and Gary Corley in Aug 2026). Clients joining through `/join` never passed through that Zap, so they would have received nothing. It was also unreliable: Brian Thompson (17 Aug 2026) never received it. Keeping it inside MyFitCoach Forms means sign-ups do not depend on Zapier or on the Coach Portal.
+
+**Sent immediately, not after 10 minutes:** A delay would need a background timer in MyFitCoach Forms, which has none, and a restart mid-wait would lose it. A message sent before the client installs the app waits in their inbox, so it is the first thing they see either way.
+
+**Never twice:** `onboarding_submissions.welcome_sent_at` is set only after Trainerize accepts the message, and `sendWelcome()` refuses any submission that already has one. An in-process guard stops two overlapping calls for the same submission (a double-clicked send button) both getting past that check; MyFitCoach Forms runs as one instance, so that is sufficient. The send skips the connector's automatic network retry on purpose: a timeout does not prove the message was not delivered, and retrying could duplicate it.
+
+**Failure never undoes a sign-up:** The welcome step runs after the submission is marked synced and never throws. A failure is stored in `welcome_error`; the onboarding list shows a "Welcome not sent" pill and the submission page has a "Send welcome message" button. A successful "Retry Trainerize sync" also sends the welcome.
+
+**Name tidying:** An all-lowercase or all-capitals first name is title-cased ("john" -> "John", "mary-kate" -> "Mary-Kate"); mixed case is left exactly as typed so "McKenzie" survives.
+
+**Trainerize doc error found on the way:** `/user/getProfile` needs `usersid` (an array of integers), not the `userID` shown in the doc's example, and the response is `usrProfile`, not `users`. The example body returns 404.
+
 ### Program PDF export (July 2026)
 
 **What it does:** `tools/program-pdf/generate.sh "<client>" "<phase>"` turns any client's Trainerize training block into a print-ready A4 PDF. Each exercise name is a live link to its demo video, and each card carries the reps and sets the client last logged plus the number to beat. See `tools/program-pdf/README.md` for usage.

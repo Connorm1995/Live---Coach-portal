@@ -95,4 +95,23 @@ async function createClient(answers) {
   return { trainerizeUserId: result.userID, overLimit: result.code === 1 };
 }
 
-module.exports = { createClient, trainerizePost };
+/**
+ * Send a direct message into the client's main Trainerize thread, from the
+ * coach. Same payload the Coach Portal's reminders use.
+ *
+ * Called with attempt = 2 so the automatic network retry is skipped: a
+ * timeout does not prove Trainerize failed to deliver, and retrying could
+ * send the client the same message twice. A genuine failure is left for the
+ * coach to resend from the admin area.
+ */
+async function sendMessage(trainerizeUserId, body) {
+  return trainerizePost('/message/send', {
+    recipients: [Number(trainerizeUserId)],
+    body,
+    threadType: 'mainThread',
+    conversationType: 'single',
+    type: 'text',
+  }, 2);
+}
+
+module.exports = { createClient, sendMessage, trainerizePost };

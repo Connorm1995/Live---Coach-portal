@@ -175,6 +175,18 @@ async function migrate() {
       );
     `);
 
+    // ---- Onboarding welcome message (Sep 2026) ----
+    //
+    // Each synced sign-up is sent Connor's welcome DM in Trainerize (it used
+    // to come from Zapier). welcome_sent_at is the record that it went out,
+    // so it is never sent twice; welcome_error holds the reason if it failed,
+    // and the admin area offers a button to send it.
+    await client.query(`
+      ALTER TABLE onboarding_submissions
+        ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS welcome_error TEXT
+    `);
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_onboarding_archive_recent
       ON onboarding_archive (coach_id, submitted_at DESC);

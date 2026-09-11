@@ -13,6 +13,9 @@
  *      and monthly forms are one shared URL each, resolved by name.
  *   4. Mark the submission synced. Any failure after step 1 marks it
  *      sync_failed with the error; the admin area has a Retry button.
+ *   5. Send Connor's welcome DM in Trainerize (replaces the old Zapier
+ *      step). A failure here never undoes the sign-up - it is recorded on
+ *      the submission and the admin area has a button to send it.
  *
  * The client always gets a success screen if step 1 succeeded - a Trainerize
  * hiccup is the coach's problem to retry, not the client's.
@@ -22,7 +25,8 @@ const path = require('path');
 const express = require('express');
 const pool = require('../db/pool');
 const def = require('../lib/onboarding-definition');
-const { createClient } = require('../lib/trainerize');
+const { createClient, sendMessage } = require('../lib/trainerize');
+const { welcomeMessage } = require('../lib/welcome-message');
 
 const router = express.Router();
 
@@ -126,6 +130,56 @@ async function syncSubmission(answers) {
   }
 }
 
+/**
+ * Send the welcome DM for a synced submission, at most once. Returns
+ * { sent: true } or { sent: false, error }. Never throws.
+ *
+ * welcome_sent_at is only set after Trainerize accepts the message, and the
+ * row is re-checked first, so a submission that already has one is skipped.
+ * `welcomeInFlight` stops two overlapping calls (a double-clicked send
+ * button) both passing that check before either has recorded the send.
+ * MyFitCoach Forms runs as a single instance, so in-process is enough.
+ */
+const welcomeInFlight = new Set();
+
+async function sendWelcome(submissionId) {
+  if (welcomeInFlight.has(submissionId)) return { sent: false, error: 'already sending' };
+  welcomeInFlight.add(submissionId);
+  try {
+    const result = await pool.query(
+      `SELECT answers, trainerize_user_id FROM onboarding_submissions
+       WHERE id = $1 AND coach_id = $2 AND status = 'synced'
+         AND trainerize_user_id IS NOT NULL AND welcome_sent_at IS NULL`,
+      [submissionId, COACH_ID]
+    );
+    const row = result.rows[0];
+    if (!row) return { sent: false, error: 'not synced or already sent' };
+
+    try {
+      await sendMessage(row.trainerize_user_id, welcomeMessage(row.answers.first_name));
+    } catch (err) {
+      console.error(`[onboarding welcome] Failed for submission ${submissionId}:`, err.message);
+      await pool.query(
+        `UPDATE onboarding_submissions SET welcome_error = $1 WHERE id = $2`,
+        [err.message, submissionId]
+      );
+      return { sent: false, error: err.message };
+    }
+
+    await pool.query(
+      `UPDATE onboarding_submissions SET welcome_sent_at = now(), welcome_error = NULL WHERE id = $1`,
+      [submissionId]
+    );
+    console.log(`[onboarding welcome] Sent for submission ${submissionId}`);
+    return { sent: true };
+  } catch (err) {
+    console.error(`[onboarding welcome] Error for submission ${submissionId}:`, err.message);
+    return { sent: false, error: err.message };
+  } finally {
+    welcomeInFlight.delete(submissionId);
+  }
+}
+
 // Page
 router.get('/join', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'checkin.html'));
@@ -225,10 +279,13 @@ router.post('/api/join/submit', async (req, res) => {
       [sync.status, sync.trainerize_user_id, sync.client_id, sync.sync_error, submissionId]
     );
 
+    // 5. Welcome DM - only once they exist in Trainerize
+    const welcome = sync.status === 'synced' ? await sendWelcome(submissionId) : { sent: false };
+
     await pool.query(`DELETE FROM onboarding_drafts WHERE submission_uuid = $1`, [uuid]);
 
     const name = `${answers.first_name || ''} ${answers.surname || ''}`.trim();
-    console.log(`[onboarding] "${name}" submitted (id=${submissionId}, sync=${sync.status}${sync.sync_error ? ', error: ' + sync.sync_error : ''})`);
+    console.log(`[onboarding] "${name}" submitted (id=${submissionId}, sync=${sync.status}${sync.sync_error ? ', error: ' + sync.sync_error : ''}, welcome=${welcome.sent ? 'sent' : 'not sent'})`);
 
     return res.json({ ok: true, endScreen: null });
   } catch (err) {
@@ -237,4 +294,4 @@ router.post('/api/join/submit', async (req, res) => {
   }
 });
 
-module.exports = { router, syncSubmission };
+module.exports = { router, syncSubmission, sendWelcome };

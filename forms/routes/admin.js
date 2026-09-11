@@ -14,7 +14,7 @@ const weeklyDef = require('../lib/checkin-definition');
 const eomDef = require('../lib/eom-definition');
 const onboardingDef = require('../lib/onboarding-definition');
 const { computeScore } = require('../lib/form-data');
-const { syncSubmission } = require('./onboarding');
+const { syncSubmission, sendWelcome } = require('./onboarding');
 
 const DEFS = { weekly: weeklyDef, eom_report: eomDef };
 const {
@@ -486,7 +486,7 @@ router.get('/admin/export.csv', requireAdmin, async (req, res) => {
 router.get('/admin/onboarding', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, submitted_at, answers, status, sync_error, trainerize_user_id
+      `SELECT id, submitted_at, answers, status, sync_error, trainerize_user_id, welcome_sent_at
        FROM onboarding_submissions
        WHERE coach_id = $1
        ORDER BY submitted_at DESC
@@ -498,7 +498,8 @@ router.get('/admin/onboarding', requireAdmin, async (req, res) => {
       const a = r.answers || {};
       const name = `${a.first_name || ''} ${a.surname || ''}`.trim() || '(no name)';
       const statusPill = r.status === 'synced'
-        ? '<span class="pill pill--synced">Synced</span>'
+        ? '<span class="pill pill--synced">Synced</span>' +
+          (r.welcome_sent_at ? '' : ' <span class="pill pill--failed">Welcome not sent</span>')
         : '<span class="pill pill--failed">Sync failed</span>';
       return `<tr class="row" onclick="window.location='/admin/onboarding/${r.id}'">
         <td>${dublin(r.submitted_at)}</td>
@@ -558,7 +559,13 @@ router.get('/admin/onboarding/:id', requireAdmin, async (req, res) => {
            <div class="item"><div class="k">Status</div><div class="v">Synced</div></div>
            <div class="item"><div class="k">Trainerize user</div><div class="v">${esc(row.trainerize_user_id || '')}</div></div>
            ${row.sync_error ? `<div class="item"><div class="k">Note</div><div class="v">${esc(row.sync_error)}</div></div>` : ''}
-         </div>`
+           ${row.welcome_sent_at ? `<div class="item"><div class="k">Welcome message</div><div class="v">Sent ${dublin(row.welcome_sent_at)} (Dublin time)</div></div>` : ''}
+         </div>
+         ${row.welcome_sent_at ? '' : `
+         <div class="sync-error">Welcome message not sent${row.welcome_error ? `: ${esc(row.welcome_error)}` : ''}. The client is set up in Trainerize - only the message is missing.</div>
+         <form method="POST" action="/admin/onboarding/${row.id}/welcome" style="margin-bottom:24px">
+           <button class="btn" type="submit">Send welcome message</button>
+         </form>`}`
       : `<div class="sync-error">Trainerize sync failed: ${esc(row.sync_error || 'unknown error')}. The answers are safe - fix the cause and retry.</div>
          <form method="POST" action="/admin/onboarding/${row.id}/retry" style="margin-bottom:24px">
            <button class="btn" type="submit">Retry Trainerize sync</button>
@@ -595,11 +602,19 @@ router.post('/admin/onboarding/:id/retry', requireAdmin, async (req, res) => {
        WHERE id = $5`,
       [sync.status, sync.trainerize_user_id, sync.client_id, sync.sync_error, row.id]
     );
+    if (sync.status === 'synced') await sendWelcome(row.id);
     return res.redirect(`/admin/onboarding/${row.id}`);
   } catch (err) {
     console.error('[admin onboarding retry] Error:', err.message);
     return res.redirect('/admin/onboarding');
   }
+});
+
+// Send the welcome DM by hand. sendWelcome skips anyone already sent one.
+router.post('/admin/onboarding/:id/welcome', requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10) || 0;
+  await sendWelcome(id);
+  return res.redirect(`/admin/onboarding/${id}`);
 });
 
 // ---- Unmatched submissions ----
