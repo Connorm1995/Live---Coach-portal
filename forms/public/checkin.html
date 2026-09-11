@@ -90,7 +90,11 @@
     min-height: 100svh;
     position: relative;
     display: flex; align-items: flex-start; justify-content: center;
-    padding: 32px 40px;
+    /* Top and bottom clear the fixed logo and the fixed up/down arrows. With
+       32px, a question that filled a small phone (iPhone SE / 8 size) put its
+       number against the logo and its last answer under the arrows, so a tap
+       on that corner of the answer changed question instead of choosing it. */
+    padding: 72px 40px 96px;
   }
   .checkin__step {
     max-width: 640px; width: 100%;
@@ -318,8 +322,19 @@
     animation: spin 700ms linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* Shown under a question when its answer cannot be accepted yet, so the
+     client is told what to change rather than only seeing the step shake. */
+  .checkin__field-error {
+    color: #fbbf24; font-size: 16px; line-height: 1.5;
+    margin: -12px 0 20px;
+  }
+  /* Phones and tablets: return makes a new line in a long answer (there is no
+     Shift key to hold), and the keyboard hints do not apply. */
+  @media (hover: none) and (pointer: coarse) {
+    .checkin__enter-hint { display: none; }
+  }
   @media (max-width: 640px) {
-    .checkin__viewport { padding: 28px 24px; }
+    .checkin__viewport { padding: 64px 24px 88px; }
     .checkin__question { font-size: 24px; }
     .checkin__welcome-title, .checkin__end-title { font-size: 26px; }
     .checkin__scale { grid-template-columns: repeat(5, minmax(0, 1fr)); }
@@ -377,7 +392,16 @@
   let scoring = null;
   let firstName = '';
   let welcomeCopy = null;
+  let endCopy = null;
   let doneCopy = null;
+
+  // A phone or tablet with no mouse or trackpad. There, return in a long
+  // answer makes a new line, because a phone keyboard has no Shift to hold.
+  const TOUCH_ONLY = !!(window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);
+
+  // Same pattern the server checks in routes/onboarding.js.
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   let submittedThisCycle = false;
   let submissionUuid = null;
   const answers = {};
@@ -551,7 +575,10 @@
     bindStep(el, step);
     updateNav(visible);
 
-    const input = el.querySelector('textarea');
+    // Put the cursor in the answer box on arrival, for single-line answers as
+    // well as long ones. Only long answers used to get it, so on a name, email
+    // or number question the client had to click the box before typing.
+    const input = el.querySelector('textarea, input.checkin__input');
     if (input) setTimeout(function () { input.focus(); }, 350);
   }
 
@@ -584,11 +611,14 @@
     }
 
     if (step.kind === 'end') {
-      return '<div class="checkin__end-title">Ready to send?</div>' +
-        '<div class="checkin__end-sub">Hit submit and your check-in comes straight through to me.</div>' +
+      // Wording comes from the server per form, so onboarding and the monthly
+      // report no longer ask the client to "submit check-in".
+      const end = endCopy || {};
+      return '<div class="checkin__end-title">' + escapeHtml(end.title || 'Ready to send?') + '</div>' +
+        '<div class="checkin__end-sub">' + escapeHtml(end.sub || 'Hit submit and your answers come straight through to me.') + '</div>' +
         '<div id="submitError"></div>' +
         '<div class="checkin__actions">' +
-        '<button class="checkin__btn" id="submitBtn">Submit check-in</button>' +
+        '<button class="checkin__btn" id="submitBtn">' + escapeHtml(end.button || 'Submit') + '</button>' +
         '</div>';
     }
 
@@ -600,12 +630,14 @@
         }
         // By this point they have named themselves, so prefer what they typed.
         const typedFirst = String(answers.client_name || '').trim().split(/\s+/)[0];
-        return '<div class="checkin__end-title">Thanks, ' + escapeHtml(typedFirst || firstName) + '. Check-in received.</div>' +
-          '<div class="checkin__end-sub">I will review this and come back to you with your feedback. Keep the head down this week.</div>';
+        const thanksName = typedFirst || firstName;
+        return '<div class="checkin__end-title">' + (thanksName ? 'Thanks, ' + escapeHtml(thanksName) + '. ' : 'Thanks. ') +
+          escapeHtml(receivedLabel()) + '.</div>' +
+          '<div class="checkin__end-sub">' + escapeHtml((endCopy && endCopy.thanks) || 'I will review this and come back to you with your feedback.') + '</div>';
       }
       const es = step.endScreen;
       return '<div class="checkin__result">' +
-        '<div class="checkin__result-eyebrow">Check-in received</div>' +
+        '<div class="checkin__result-eyebrow">' + escapeHtml(receivedLabel()) + '</div>' +
         gaugeSvg(es.key) +
         '<div class="checkin__result-band">' + escapeHtml(es.label) +
         '<span class="checkin__result-check" style="background:' + escapeHtml(es.color) + '">' +
@@ -707,6 +739,13 @@
   }
 
   function bindStep(el, step) {
+    // A "why can't I continue" message goes as soon as the client changes
+    // their answer, so it never sits there describing an answer they fixed.
+    el.addEventListener('input', function () { clearFieldError(el); });
+    el.addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('.checkin__choice, .checkin__scale-btn')) clearFieldError(el);
+    });
+
     el.querySelectorAll('[data-action="next"]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const field = el.querySelector('textarea, input.checkin__input');
@@ -715,16 +754,10 @@
       });
     });
 
+    // Enter is handled once, for every kind of step, in the document keydown
+    // listener below - not per field.
     const input = el.querySelector('input.checkin__input');
     if (input) {
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          answers[step.id] = input.value;
-          scheduleSave();
-          tryAdvance();
-        }
-      });
       input.addEventListener('input', function () {
         answers[step.id] = input.value;
         scheduleSave();
@@ -736,7 +769,7 @@
         answers[step.id] = parseInt(btn.dataset.value, 10);
         scheduleSave();
         btn.classList.add('checkin__scale-btn--selected');
-        setTimeout(goNext, 220);
+        advanceShortly();
       });
     });
 
@@ -763,7 +796,7 @@
         answers[step.id] = btn.dataset.value;
         scheduleSave();
         btn.classList.add('checkin__choice--selected');
-        setTimeout(goNext, 220);
+        advanceShortly();
       });
     });
 
@@ -772,9 +805,6 @@
       otherInput.addEventListener('input', function () {
         answers[step.id + '_other'] = otherInput.value;
         scheduleSave();
-      });
-      otherInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); tryAdvance(); }
       });
     }
 
@@ -794,15 +824,6 @@
       };
       ta.addEventListener('input', autoGrow);
       autoGrow();
-
-      ta.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          answers[step.id] = ta.value;
-          scheduleSave();
-          goNext();
-        }
-      });
     }
 
     const submitBtn = el.querySelector('#submitBtn');
@@ -839,10 +860,23 @@
           return;
         }
         if (res.status === 422) {
-          // Missing required answers - send them back to the first gap
-          errBox.innerHTML = '<div class="checkin__error-box">A couple of questions are missing an answer - taking you back to the first one.</div>';
+          // The server names the questions it could not accept. Go to the
+          // first of those and say what is wrong there. This used to guess
+          // "the first unanswered question", which is nowhere when the problem
+          // is an answer that is filled in but invalid, and dropped the client
+          // on the welcome screen.
+          errBox.innerHTML = '<div class="checkin__error-box">One of your answers needs another look - taking you to it now.</div>';
           submitting = false;
-          setTimeout(function () { currentIndex = firstUnansweredIndex(); render(); }, 1600);
+          const missing = Array.isArray(body.missing) ? body.missing : [];
+          setTimeout(function () {
+            const visible = visibleSteps();
+            let idx = visible.findIndex(function (s) { return s.id && missing.indexOf(s.id) !== -1; });
+            if (idx === -1) idx = firstUnansweredIndex();
+            currentIndex = idx;
+            render();
+            const target = visible[idx];
+            showFieldError(answerProblem(target) || 'Please check this answer.');
+          }, 1600);
           return;
         }
         lastError = body.error || ('HTTP ' + res.status);
@@ -894,25 +928,96 @@
     const visible = visibleSteps();
     if (currentIndex < visible.length - 1) { currentIndex++; render(); }
   }
+  /**
+   * Move on after a short pause, so the client sees their answer highlight.
+   * The pause is tied to the question it was started from: if anything has
+   * already moved the form on (Enter, a second tap, the arrows), it does
+   * nothing. A plain delayed goNext() used to fire once per tap, so a
+   * double-tap on an answer skipped the following question entirely.
+   */
+  function advanceShortly() {
+    const from = currentIndex;
+    setTimeout(function () { if (currentIndex === from) goNext(); }, 220);
+  }
   function goBack() {
     if (finished || submitting) return;
     if (currentIndex > 0) { currentIndex--; render(); }
   }
 
-  /** Can the client leave this step going forward? Scales and single-choice
-      always need an answer; other kinds only when marked required. */
+  /**
+   * What is stopping this question's answer being accepted, as a sentence
+   * for the client - or null if it is fine.
+   *
+   * Mirrors the server's checks (routes/onboarding.js validateOnboarding and
+   * lib/form-data.js validateAnswers). Before this the browser only checked
+   * that something had been typed, so a mistyped email, or a height given in
+   * feet, sailed through every question and was rejected at Submit. The
+   * client was then sent back to the welcome screen told an answer was
+   * "missing", with no way to find out which or why, and could never finish.
+   */
+  function answerProblem(step) {
+    if (!step || step.kind === 'welcome' || step.kind === 'end') return null;
+    const v = answers[step.id];
+    const empty = v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === '');
+
+    if (step.kind === 'scale') return empty ? 'Pick a number to continue.' : null;
+    if (step.kind === 'choice') return empty ? 'Pick an answer to continue.' : null;
+
+    // A number box holds nothing at all when what was typed is not a number
+    // ("5'11", "13st"), so for numbers an empty box gets the same guidance as
+    // a wrong one: say what we need, not just that it is blank.
+    if (step.kind === 'number') {
+      const n = parseFloat(v);
+      const bad = empty || !isFinite(n) ||
+        (step.min != null && n < step.min) || (step.max != null && n > step.max);
+      if (empty && !step.required) return null;
+      if (!bad) return null;
+      return step.invalidMessage ||
+        ('Please enter a number' + (step.min != null && step.max != null ? ' between ' + step.min + ' and ' + step.max : '') + '.');
+    }
+
+    if (empty) {
+      if (!step.required) return null;
+      return step.kind === 'multichoice' ? 'Pick at least one to continue.' : 'Please answer this one to continue.';
+    }
+    if (step.kind === 'email' && !EMAIL_RE.test(String(v).trim())) {
+      return "That email address doesn't look right. Check it for typos.";
+    }
+    if (step.kind === 'date' && (!DATE_RE.test(String(v)) || isNaN(new Date(v).getTime()))) {
+      return 'Please enter the full date.';
+    }
+    return null;
+  }
+
+  /** Can the client leave this step going forward? */
   function canAdvance(step) {
     if (!step) return false;
     if (step.kind === 'welcome') return true;
     if (step.kind === 'end') return false;
-    if (step.kind === 'scale' || step.kind === 'choice') return answers[step.id] != null;
-    if (step.required) {
-      const v = answers[step.id];
-      if (v == null) return false;
-      if (Array.isArray(v)) return v.length > 0;
-      return String(v).trim() !== '';
+    return answerProblem(step) === null;
+  }
+
+  function showFieldError(message) {
+    const el = document.querySelector('.checkin__step--active');
+    if (!el) return;
+    let box = el.querySelector('.checkin__field-error');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'checkin__field-error';
+      box.setAttribute('role', 'alert');
+      const actions = el.querySelector('.checkin__actions');
+      if (actions) el.insertBefore(box, actions); else el.appendChild(box);
     }
-    return true;
+    box.textContent = message;
+  }
+
+  function clearFieldError(el) {
+    const box = el && el.querySelector('.checkin__field-error');
+    if (box) box.remove();
+  }
+
+  function receivedLabel() {
+    return (endCopy && endCopy.received) || 'Received';
   }
 
   /** Save any in-progress text on the active step before navigating away. */
@@ -928,7 +1033,9 @@
     const step = visibleSteps()[currentIndex];
     captureActiveText();
     if (canAdvance(step)) { goNext(); return; }
-    // Blocked (unanswered scored question) - give a little shake as feedback
+    // Blocked - say why, and give a little shake so it is noticed
+    const problem = answerProblem(step);
+    if (problem) showFieldError(problem);
     const el = document.querySelector('.checkin__step--active');
     if (el) {
       el.classList.remove('checkin__step--nudge');
@@ -946,18 +1053,54 @@
 
   document.addEventListener('keydown', function (e) {
     if (submitting || finished) return;
+    if (!welcomeCopy) return; // the form never loaded - only the error screen is showing
     const visible = visibleSteps();
     const step = visible[currentIndex];
 
-    // Arrow keys navigate, Typeform-style (up = back, down = forward if allowed)
-    if (e.key === 'ArrowUp') { e.preventDefault(); goBack(); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); tryAdvance(); return; }
-    if (step.kind === 'scale' && /^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey) {
+    // Enter means "OK, next" on every step, whatever kind of question it is and
+    // wherever the focus happens to be. It used to be wired separately into
+    // each text box, so it only worked after tapping into one, did nothing on
+    // scale, choice and multi-select questions, and on long answers skipped
+    // the required-answer check the OK button applies.
+    if (e.key === 'Enter') {
+      if (e.isComposing || e.keyCode === 229) return; // mid-word in a predictive / IME keyboard
+      const inLongAnswer = e.target && e.target.tagName === 'TEXTAREA';
+      if (inLongAnswer && e.shiftKey) return; // Shift + Enter = new line
+      // Phones have no Shift key, so return in a long answer is always a new
+      // line there; the client taps OK to move on.
+      if (inLongAnswer && TOUCH_ONLY) return;
+      // Two places where Enter should keep doing what the focused button does:
+      // the submit screen (never submit a check-in just because Enter was held)
+      // and the "previous question" arrow.
+      if (step.kind === 'end') return;
+      if (e.target && e.target.id === 'navUp') return;
+      // Stops a focused answer button being "clicked" by Enter - on a
+      // multi-select that silently un-ticked the option instead of moving on.
+      e.preventDefault();
+      if (e.repeat) return; // a held-down Enter must not race through questions
+      tryAdvance();
+      return;
+    }
+
+    // Arrow keys navigate, Typeform-style (up = back, down = forward if
+    // allowed) - but not while typing in a box, where up and down move the
+    // cursor between lines (or change a date or number). They used to jump to
+    // another question mid-sentence in a long answer.
+    const typing = e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT');
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !typing) {
+      e.preventDefault();
+      if (e.key === 'ArrowUp') goBack(); else tryAdvance();
+      return;
+    }
+    // Letter and number shortcuts must not fire on Cmd/Ctrl/Alt combinations -
+    // Cmd+C on a multiple-choice question used to pick answer C.
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (step.kind === 'scale' && /^[0-9]$/.test(e.key)) {
       const v = e.key === '0' ? 10 : parseInt(e.key, 10);
       answers[step.id] = v;
       scheduleSave();
       render();
-      setTimeout(goNext, 220);
+      advanceShortly();
     }
     if (step.kind === 'choice' && /^[a-gA-G]$/.test(e.key)) {
       const idx = e.key.toUpperCase().charCodeAt(0) - 65;
@@ -965,7 +1108,7 @@
         answers[step.id] = step.options[idx];
         scheduleSave();
         render();
-        setTimeout(goNext, 220);
+        advanceShortly();
       }
     }
     if (step.kind === 'multichoice' && /^[a-zA-Z]$/.test(e.key) && !e.metaKey && !e.ctrlKey) {
@@ -1026,7 +1169,7 @@
       const a = (Math.PI * angleDeg) / 180;
       return (cx + r * Math.cos(a)).toFixed(1) + ' ' + (cy - r * Math.sin(a)).toFixed(1);
     }
-    let svg = '<svg class="checkin__gauge" viewBox="0 30 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Weekly score gauge">';
+    let svg = '<svg class="checkin__gauge" viewBox="0 30 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Score gauge">';
 
     GAUGE_BANDS.forEach(function (band, i) {
       const a1 = 180 - i * 36;
@@ -1105,6 +1248,7 @@
       scoring = state.scoring || null;
       firstName = state.firstName;
       welcomeCopy = state.welcome;
+      endCopy = state.end || null;
       doneCopy = state.done || null;
       submittedThisCycle = state.submittedThisCycle;
       if (state.formTitle) document.title = state.formTitle + ' - MyFitCoach';

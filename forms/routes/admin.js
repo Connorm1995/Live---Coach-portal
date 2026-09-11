@@ -430,8 +430,14 @@ router.get('/admin/checkin/:id', requireAdmin, async (req, res) => {
 // ---- CSV export ----
 
 function csvCell(v) {
-  const s = String(v == null ? '' : v);
-  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  let s = String(v == null ? '' : v);
+  // Answers are typed by clients on a public form. Excel and Google Sheets run
+  // any cell starting with = + - @ (or a tab / carriage return before one) as
+  // a formula, so an answer like =HYPERLINK(...) would execute when the
+  // export is opened. A leading apostrophe makes the spreadsheet show it as
+  // plain text. Numbers (scores, scale answers) are left alone.
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
 router.get('/admin/export.csv', requireAdmin, async (req, res) => {

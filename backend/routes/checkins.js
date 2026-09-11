@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { trainerizePostRaw } = require('../lib/trainerize');
 
-const { getCurrentCycleSunday, getCurrentMonthFirst, isCycleClosed } = require('../lib/cycle');
+const { getCurrentCycleSunday, getCurrentEomCycle, isCycleClosed } = require('../lib/cycle');
 
 const router = express.Router();
 
@@ -22,7 +22,7 @@ async function trainerizeSendDM(recipientTrainerizeId, messageText) {
 router.get('/hub', async (req, res) => {
   const filter = req.query.filter || 'all';
   const weekStart = getCurrentCycleSunday();
-  const monthStart = getCurrentMonthFirst();
+  const monthStart = getCurrentEomCycle();
   const cycleClosed = isCycleClosed();
 
   try {
@@ -117,7 +117,7 @@ router.get('/hub', async (req, res) => {
 router.get('/pending/:clientId', async (req, res) => {
   const { clientId } = req.params;
   const weekStart = getCurrentCycleSunday();
-  const monthStart = getCurrentMonthFirst();
+  const monthStart = getCurrentEomCycle();
 
   try {
     const result = await pool.query(`

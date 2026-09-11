@@ -93,6 +93,7 @@ router.get('/api/:form(checkin|monthly)/state', async (req, res) => {
       rememberedName,
       formTitle: form.title,
       welcome: form.welcome,
+      end: form.end,
       questions: form.def.QUESTIONS,
       // The browser needs these to work out the running score for itself.
       // One question (the tough-week follow-up) appears based on the total

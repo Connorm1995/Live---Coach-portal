@@ -48,6 +48,13 @@ const WELCOME = {
   alreadySubmitted: '',
 };
 
+// The "Ready to send?" step. Without this the page falls back to the weekly
+// check-in's wording, which told new clients to "submit check-in".
+const END = {
+  sub: 'Hit submit and your answers come straight through to me.',
+  button: 'Submit',
+};
+
 const DONE = {
   title: "That's everything - welcome aboard.",
   sub: 'Your Trainerize invite is on its way to your email (check spam if it has not landed in a few minutes). Connor will review your answers and your plan will follow.',
@@ -202,6 +209,7 @@ router.get('/api/join/state', async (req, res) => {
       firstName: 'there',
       formTitle: 'MyFitCoach Onboarding',
       welcome: WELCOME,
+      end: END,
       done: DONE,
       questions: def.QUESTIONS,
       draft,

@@ -92,7 +92,7 @@ function findBestMatch(submittedName, clients) {
   return { match: bestMatch, score: bestScore };
 }
 
-const { getCurrentCycleSunday, getCurrentMonthFirst } = require('../lib/cycle');
+const { getCurrentCycleSunday, getCurrentEomCycle } = require('../lib/cycle');
 
 // POST /webhooks/typeform
 router.post('/typeform', async (req, res) => {
@@ -159,10 +159,10 @@ router.post('/typeform', async (req, res) => {
 
     const clientId = match.id;
 
-    // 5. Calculate cycle_start (weekly = most recent Sunday, eom = 1st of month)
+    // 5. Calculate cycle_start (weekly = most recent Sunday, eom = the month the report is for)
     const cycleStart = type === 'weekly'
       ? getCurrentCycleSunday()
-      : getCurrentMonthFirst();
+      : getCurrentEomCycle();
 
     // 6. Extract full answers for form_data storage
     const formDataJson = answers.length > 0 ? JSON.stringify(answers) : null;

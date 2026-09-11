@@ -8,7 +8,8 @@
  *     and belongs to the next cycle
  *
  * EOM cycle:
- *   - Anchored to the 1st of the current month (unchanged)
+ *   - Stored as the 1st of the month the report is FOR, which is not always
+ *     the month it was sent in - see getCurrentEomCycle.
  */
 
 // Safe to require here: auto-message-templates is plain data and requires
@@ -39,6 +40,41 @@ function getCurrentCycleSunday() {
 function getCurrentMonthFirst() {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+}
+
+// Reports sent on days 1 to this day of a month belong to the previous month.
+const EOM_LATE_UNTIL_DAY = 14;
+
+/**
+ * The month an End of Month report sent now is FOR, as YYYY-MM-01.
+ *
+ * The report goes out on the last Saturday of the month, with a Monday
+ * deadline two days later that can land in the next month (31 Oct 2026 ->
+ * Mon 2 Nov). Filing by calendar month therefore put anything sent on the
+ * 1st or 2nd under the NEW month: the report showed as next month's, dropped
+ * out of the Check-in Hub, and its sender was still sent the "you haven't
+ * sent it" reminder for the month they had just reported on. Seven real
+ * reports were misfiled this way between April and September 2026.
+ *
+ * Rule: sent on the 1st to the 14th (Dublin date) = the previous month's
+ * report; from the 15th on = that month's. That covers late reports up to
+ * two weeks, the December prompt moved early for Christmas (Sat 19 Dec), and
+ * anyone sending theirs a few days before the Saturday.
+ *
+ * Duplicated in forms/lib/cycle.js - the two apps must file reports
+ * identically or the hub and the forms disagree. Change both.
+ */
+function getCurrentEomCycle(now = new Date()) {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Dublin', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now).split('-').map(Number);
+  let year = y;
+  let month = m;
+  if (d <= EOM_LATE_UNTIL_DAY) {
+    month -= 1;
+    if (month === 0) { month = 12; year -= 1; }
+  }
+  return `${year}-${String(month).padStart(2, '0')}-01`;
 }
 
 /**
@@ -102,6 +138,7 @@ function getEomDeadlineMonday(year, month) {
 module.exports = {
   getCurrentCycleSunday,
   getCurrentMonthFirst,
+  getCurrentEomCycle,
   isCycleClosed,
   getEomDeadlineMonday,
   CUTOFF_DAY,

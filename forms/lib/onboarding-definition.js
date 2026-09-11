@@ -19,10 +19,14 @@ const QUESTIONS = [
     hint: 'Your Trainerize invite will be sent here, so double check it.' },
   { id: 'phone', kind: 'phone', number: 4, required: true,
     question: 'Phone number' },
+  // invalidMessage is shown on the question when the answer is not a number in
+  // range - the usual cause is weight in stone or height in feet and inches.
   { id: 'bodyweight', kind: 'number', number: 5, required: true,
-    question: 'Current bodyweight (kg)', min: 30, max: 400 },
+    question: 'Current bodyweight (kg)', min: 30, max: 400,
+    invalidMessage: 'Please enter your weight in kilograms, for example 82. If you only know it in stone, multiply by 6.35.' },
   { id: 'height', kind: 'number', number: 6, required: true,
-    question: 'Height (cm)', min: 100, max: 250 },
+    question: 'Height (cm)', min: 100, max: 250,
+    invalidMessage: 'Please enter your height in centimetres, for example 178. 5 foot 10 is about 178cm.' },
   { id: 'dob', kind: 'date', number: 7, required: true,
     question: 'Date of birth' },
 

@@ -808,7 +808,7 @@ Added July 2026. Standalone Express service in `forms/`, replacing the Typeform 
 
 ### End of Month report on MyFitCoach Forms (July 2026)
 
-- The EOM report runs on the same engine as the weekly check-in at `/monthly/<token>` (same personal token per client). Definition in `forms/lib/eom-definition.js`, built from `connor-eom-report-reference.md`: training first / overall last, explicit follow-up thresholds (low = 6 or below, stress = 7 or above), multiple-choice follow-ups, unscored direction confidence, hindsight question. Cycle = 1st of the current month, checkins.type = 'eom_report'.
+- The EOM report runs on the same engine as the weekly check-in at `/monthly/<token>` (same personal token per client). Definition in `forms/lib/eom-definition.js`, built from `connor-eom-report-reference.md`: training first / overall last, explicit follow-up thresholds (low = 6 or below, stress = 7 or above), multiple-choice follow-ups, unscored direction confidence, hindsight question. Cycle = the month the report is for (see "End of Month reports are filed under the month they are for"), checkins.type = 'eom_report'.
 - EOM scoring brackets differ from weekly (training bracket, stress position 6 scores 4 not 3). Verified against Typeform's own calculated scores: 18/20 historical EOM responses match exactly; the two non-matching are the earliest (mid-March 2026), where Typeform recorded score 0 because its scoring variable was not yet configured.
 - FIXED July 2026: backend/lib/overview-parsers.js now detects EOM submissions by their eom-* refs and applies WEIGHT_BRACKETS_EOM (training and stress differ from weekly). Verified: all 20 EOM rows agree with the Typeform-verified engine; weekly scoring unchanged (100/100 sample). Takes effect on the portal's next manual deploy.
 
@@ -836,6 +836,66 @@ Added July 2026. Standalone Express service in `forms/`, replacing the Typeform 
 **Name tidying:** An all-lowercase or all-capitals first name is title-cased ("john" -> "John", "mary-kate" -> "Mary-Kate"); mixed case is left exactly as typed so "McKenzie" survives.
 
 **Trainerize doc error found on the way:** `/user/getProfile` needs `usersid` (an array of integers), not the `userID` shown in the doc's example, and the response is `usrProfile`, not `users`. The example body returns 404.
+
+### Enter key and auto-advance on the client forms (September 2026)
+
+All three client forms (weekly, EOM, onboarding) run on `forms/public/checkin.html`, so these rules apply to every one of them.
+
+**Enter means "OK, next" on every step.** It is handled once, in the document keydown listener, and goes through `tryAdvance()` - exactly what the OK button and the down arrow do, including the required-answer check. It used to be wired into each text box separately, which left it inconsistent: it only worked after tapping into a single-line box, did nothing on scale, choice and multi-select questions (even answered ones), and on long answers called `goNext()` directly, skipping a required answer. Enter on a focused multi-select option also "clicked" it and silently un-ticked the answer; the handler now cancels that default.
+
+**Exceptions, on purpose:** Shift + Enter in a long answer still makes a new line. On a phone or tablet with no mouse (`(hover: none) and (pointer: coarse)`), return in a long answer is ALWAYS a new line, because a phone keyboard has no Shift to hold - the client taps OK to move on, and the "press Enter" hints are hidden there. Single-line answers still move on with return on phones. Enter does nothing on the "Ready to send?" step, so a held or double-pressed Enter can never submit. Enter on the focused "previous question" arrow keeps going back. A held-down Enter (key repeat) is ignored so it cannot race through answered questions, and Enter while a predictive keyboard is mid-word is left alone.
+
+**The answer box is focused on arrival** for single-line answers as well as long ones, so a name or email can be typed straight away.
+
+**Auto-advance is tied to the question it started on.** Tapping a scale or single-choice answer moves on after 220ms so the highlight is visible. `advanceShortly()` records the question it was started from and does nothing if the form has already moved. A plain delayed `goNext()` fired once per tap, so a double-tap skipped the next question (reproduced on onboarding Q10, which jumped past Q11), and tapping an answer then pressing Enter would have done the same.
+
+**Arrow keys and shortcuts:** Up and down move between questions only when the client is not typing in a box. Inside a long answer they move the cursor between lines (they used to jump to another question mid-sentence), and in date and number boxes they keep their normal behaviour. Letter and number shortcuts ignore Cmd, Ctrl and Alt, so Cmd+C on a multiple-choice question no longer picks answer C.
+
+### Answer checks on the client forms (September 2026)
+
+**The page checks each answer the way the server will, before moving on.** `answerProblem(step)` in `checkin.html` mirrors `validateOnboarding` (routes/onboarding.js) and `validateAnswers` (lib/form-data.js): required answers present, email matching the same pattern, numbers within the question's `min`/`max`, dates complete. When an answer is not acceptable the step shakes AND shows a sentence under it saying what to change (`.checkin__field-error`); the sentence goes as soon as the answer is edited.
+
+**Why:** the page used to check only that something had been typed. A mistyped email, weight in stone or height in feet passed every question and was rejected at Submit with a 422. The page then sent the client to "the first unanswered question" - which does not exist when every question is answered - so they landed on the welcome screen, told an answer was "missing", with no way to find it. A new client could never finish onboarding.
+
+**Number questions** carry an `invalidMessage` in the definition (bodyweight and height in onboarding) that says what unit is wanted. An empty number box gets that message too, because a browser leaves a number box empty when what was typed is not a number (`5'11`).
+
+**If the server still refuses a submission** (422), the page now uses the `missing` list the server already returns: it goes to the first of those questions and shows its message.
+
+**End-of-form wording per form.** The "Ready to send?" step, the thank-you line and the result heading come from the server per form (`end` in lib/form-types.js and routes/onboarding.js): "Submit check-in" / "Check-in received" for weekly, "Submit report" / "Report received" for EOM, "Submit" for onboarding. It was hard-coded to the weekly wording, so new clients were asked to "submit check-in".
+
+### Client form layout on small phones (September 2026)
+
+`.checkin__viewport` padding is 72px top and 96px bottom (64px / 88px under 640px wide), clearing the fixed logo and the fixed up/down arrows. With 32px, a question that filled an iPhone SE / 8 sized screen put its number against the logo and its last answer under the arrows, so tapping that corner of the answer changed question instead of choosing it. Checked across every step of all three forms at 320x640, 375x667 and 375x812: nothing under the arrows, nothing against the logo, no sideways scrolling.
+
+### End of Month reports are filed under the month they are for (September 2026)
+
+**Rule:** a report sent on the 1st to the 14th of a month (Dublin date) is the previous month's report; from the 15th on it is that month's. `getCurrentEomCycle()` in `backend/lib/cycle.js` and `forms/lib/cycle.js` - two identical copies, because the apps share no code. Used for filing new reports (MyFitCoach Forms and the old Typeform webhook) and for the Check-in Hub's "current month" (`/api/checkins/hub` and `/api/checkins/pending/:clientId`). The two must always agree or a report files under one month while the hub looks at another.
+
+**Why:** the report goes out on the last Saturday of the month and the deadline is the Monday after, which can be in the next month (Sat 31 Oct 2026 -> Mon 2 Nov; also Jan, Feb and Jul 2027). Filing by calendar month put anything sent on the 1st or 2nd under the new month. The report showed as next month's, the hub switched months on the 1st so that month's reports vanished from it mid-reply, and the client was still sent the 7pm "you haven't sent it" reminder, which looks for the old month.
+
+**Why the 15th and not "the last Saturday":** anchoring on the prompt date would file a report sent a few days early (someone going on holiday) under the previous month, and would need the prompt date exceptions (December moved to Sat 19 Dec) copied into MyFitCoach Forms. The 15th covers reports up to two weeks late and any early ones without either problem. `getCurrentMonthFirst()` still exists for `seed.js` only.
+
+**Hub side effect:** from the 1st to the 14th the Check-in Hub's EOM section shows the previous month's reports, which is the month Connor is replying to.
+
+**Historical fix, 11 Sep 2026.** Seven real reports had been filed under the wrong month and were moved in one transaction (`cycle_start` only). Rollback, if ever needed, is the reverse of each line:
+
+| checkin id | client | was | now |
+|---|---|---|---|
+| 773 | Barry Freyne | 2026-04-01 | 2026-03-01 |
+| 951 | Ronan Burke | 2026-06-01 | 2026-05-01 |
+| 952 | Stephen Burdock | 2026-06-01 | 2026-05-01 |
+| 1032 | Jason Tansey | 2026-07-01 | 2026-06-01 |
+| 1118 | Brendan Traynor | 2026-08-01 | 2026-07-01 |
+| 1140 | Jason Tansey | 2026-08-01 | 2026-07-01 |
+| 1210 | Shane Errity | 2026-09-01 | 2026-08-01 |
+
+None of the seven clients already had a report in the target month (checked in the same transaction). The test client "ZZ Forms Test Client" (10 Jul) was left alone.
+
+### CSV export and dependencies (September 2026)
+
+**CSV cells that could run as formulas are neutralised.** Answers come from public forms, and Excel / Google Sheets execute a cell starting with `= + - @` (or a tab or carriage return). `csvCell` in routes/admin.js prefixes such text with an apostrophe so it shows as plain text. Numbers are left alone.
+
+**`qs` is pinned to ^6.16.0** through `overrides` in `forms/package.json`. Express 4.22.2, the newest 4.x, still requires `qs ~6.15.1`, which has two moderate denial-of-service advisories (GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g). 6.16 is a minor release; query-string parsing checked unchanged. Remove the override once an Express 4 release allows 6.16. `npm audit` for MyFitCoach Forms is clean.
 
 ### Program PDF export (July 2026)
 
