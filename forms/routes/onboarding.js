@@ -8,7 +8,8 @@
  *   1. Store the full submission in onboarding_submissions - before anything
  *      else, so no answer set is ever lost.
  *   2. Create the client in Trainerize (/user/add, sendMail: true - Trainerize
- *      emails them their sign-in invite).
+ *      emails them their sign-in invite) and put them on the high ticket
+ *      programme tag. A tag failure is recorded, never fatal.
  *   3. Create the portal client row. No per-client link is needed - the weekly
  *      and monthly forms are one shared URL each, resolved by name.
  *   4. Mark the submission synced. Any failure after step 1 marks it
@@ -31,7 +32,17 @@ const { welcomeMessage } = require('../lib/welcome-message');
 const router = express.Router();
 
 const COACH_ID = 1;
+// Everyone who completes this form is a high ticket client. Connor, 12 Sep
+// 2026: Core clients are only ever moved across from the high ticket
+// programme, so they are already in Trainerize and he sets them up by hand.
+// Nobody onboards straight onto Core, so there is no second path here.
+//
+// These two must always agree. DEFAULT_PROGRAM is what the Coach Portal reads;
+// PROGRAM_TAG is what Trainerize reads, and the portal's nightly reconcile
+// treats the tag as the source of truth. If they ever disagree, the reconcile
+// wins and quietly rewrites the programme.
 const DEFAULT_PROGRAM = 'my_fit_coach';
+const PROGRAM_TAG = 'Connor - MyFitCoach';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -98,7 +109,7 @@ function validateOnboarding(answers) {
  */
 async function syncSubmission(answers) {
   try {
-    const { trainerizeUserId, overLimit } = await createClient(answers);
+    const { trainerizeUserId, overLimit, tagError } = await createClient(answers, { tag: PROGRAM_TAG });
 
     const fullName = `${String(answers.first_name || '').trim()} ${String(answers.surname || '').trim()}`.trim();
     const email = String(answers.email || '').trim();
@@ -129,7 +140,10 @@ async function syncSubmission(answers) {
       status: 'synced',
       trainerize_user_id: trainerizeUserId,
       client_id: clientId,
-      sync_error: overLimit ? 'Created, but queued in Trainerize pending list (plan limit reached)' : null,
+      sync_error: [
+        overLimit ? 'Created, but queued in Trainerize pending list (plan limit reached)' : null,
+        tagError ? `Created, but the "${PROGRAM_TAG}" tag did not apply - add it by hand in Trainerize (${tagError})` : null,
+      ].filter(Boolean).join(' ') || null,
     };
   } catch (err) {
     console.error('[onboarding sync] Failed:', err.message);

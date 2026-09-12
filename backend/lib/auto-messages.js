@@ -245,6 +245,32 @@ function nextLastSaturdays(count, from = new Date()) {
   return out;
 }
 
+/**
+ * Swap in any month that does not follow the usual last-Saturday rule.
+ *
+ * Returns the adjusted date list plus a date -> body map for the sends whose
+ * copy differs. Order is preserved because an exception only ever moves a date
+ * earlier within its own month.
+ *
+ * Lives here rather than in the scheduling script because BOTH paths need it:
+ * the yearly run and a single client switched onto Core mid-year. When it sat
+ * in the script only, --switch quietly scheduled the raw last Saturday - so a
+ * client moved to Core before Christmas got 26 Dec, out of step with everyone
+ * else on 19 Dec, and with the standard wording rather than the Christmas one.
+ */
+function applyEomExceptions(dates) {
+  const bodyByDate = {};
+  const applied = [];
+  const out = dates.map((date) => {
+    const ex = templates.EOM_EXCEPTIONS[date.slice(0, 7)];
+    if (!ex) return date;
+    bodyByDate[ex.date] = ex.body;
+    applied.push({ from: date, to: ex.date, reason: ex.reason });
+    return ex.date;
+  });
+  return { dates: out, bodyByDate, applied };
+}
+
 // ---------------------------------------------------------------------------
 // Batch scheduling
 // ---------------------------------------------------------------------------
@@ -437,11 +463,19 @@ async function rollbackBatch(batchId) {
   return { deleted, failures, total: rows.length };
 }
 
-/** Roll back every live message for one client and kind. */
-async function rollbackClient(clientId, kind) {
+/**
+ * Roll back live messages for one client and kind.
+ *
+ * `futureOnly` limits it to sends that have not happened yet. A programme
+ * switch wants that: the old prompts a client already received are history,
+ * and deleting them only strips their Trainerize calendar of a true record.
+ * Undoing a batch created in error still wants the default, everything.
+ */
+async function rollbackClient(clientId, kind, { futureOnly = false } = {}) {
   const { rows } = await pool.query(
     `SELECT * FROM auto_messages
-     WHERE coach_id = $1 AND client_id = $2 AND kind = $3 AND deleted_at IS NULL`,
+     WHERE coach_id = $1 AND client_id = $2 AND kind = $3 AND deleted_at IS NULL
+       ${futureOnly ? 'AND send_date >= CURRENT_DATE' : ''}`,
     [COACH_ID, clientId, kind]
   );
   let deleted = 0;
@@ -469,6 +503,7 @@ module.exports = {
   fetchOne,
   nextSundays,
   nextLastSaturdays,
+  applyEomExceptions,
   liveCountFor,
   reconcileClient,
   findProgrammeMismatches,

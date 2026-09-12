@@ -1303,6 +1303,117 @@ is quietly not running is worse than one that is loudly broken.
 
 ---
 
+## Setting up one client: starting, restarting, switching (September 2026)
+
+Three one-off scripts, all sharing the same shape: dry run by default, every
+step checks its own state so re-running changes nothing, and the batch id at the
+end rolls the messages back.
+
+| Script | Client | What it does |
+|---|---|---|
+| `reactivate-gavin-bluett.js` | returning | Programme + skip a week + 52 weekly |
+| `start-stephen-hudson-weekly.js` | brand new | Skip a week + 52 weekly |
+| `switch-sean-mcgrath-to-core.js` | moved to Core | Programme + swap weekly for EOM |
+
+### Skipping a client's first week without switching reminders off
+
+A client who starts mid-week has no prompt for the current cycle, but the Monday
+nudge does not know that. Its query picks up any active client on the programme
+with no check-in and no `reminder_logs` row for the cycle, so a new or returning
+client matches all three conditions and gets chased for a check-in they were
+never sent.
+
+**The fix is a `reminder_logs` row written ahead of time**, with `sent = false`
+and a `skipped_reason` saying why. The scheduler's own deduplication then skips
+them, because it cannot tell the difference between "already reminded" and
+"deliberately marked handled".
+
+**Why not toggle `clients.reminders_enabled`.** It would work, but it needs a
+second action later to turn back on, and a forgotten toggle is silent - the
+client simply never gets chased again. The log row suppresses exactly one cycle
+and needs no follow-up.
+
+The cycle to suppress is the Sunday **before** the first prompt, matching
+`getCurrentCycleSunday()` on the Monday in question. Gavin Bluett, 4 Sep 2026:
+first prompt 13 Sep, suppressed cycle `2026-09-06`. Stephen Hudson, 12 Sep 2026:
+first prompt 20 Sep, suppressed cycle `2026-09-13`.
+
+To start the run a week late, pass the skipped Sunday as the `from` argument of
+`nextSundays()`. It returns Sundays strictly after that date, so the run opens on
+the following one. Each script asserts the first date is what was asked for and
+refuses to schedule if not.
+
+### `--switch` applies the EOM month exceptions
+
+`switchClient()` built its dates from `nextLastSaturdays()` and stopped there, so
+a client moved onto Core mid-year got the raw last Saturday. Sean McGrath, 8 Sep
+2026, would have been the first: 26 December on his own, Christmas weekend, with
+the standard wording, while the other twelve Core clients sat on the 19th.
+
+`applyEomExceptions()` now lives in `lib/auto-messages.js` rather than in the
+scheduling script, because both callers need it - the yearly run and the
+single-client switch.
+
+### A programme switch keeps the prompts already sent
+
+`rollbackClient()` takes `{ futureOnly }`. The switch path passes it; undoing a
+batch created in error does not.
+
+Two reasons. The count reported by the dry run came from `liveCountFor()`, which
+is future-only, while the deletion was not, so it removed more than it said it
+would. And a prompt already delivered is a true record of what the client was
+sent, worth keeping on their calendar.
+
+### Known limit: deleting a message that is already gone
+
+`/dailyMessage/delete` returns 404 for a message deleted by hand in the
+Trainerize app, and `deleteOne()` counts that as a failure, leaving the row
+`deleted_at IS NULL`. The log then claims messages exist that do not, which
+`findProgrammeMismatches()` reports as a mismatch.
+
+This happened on all 47 of Sean McGrath's weekly prompts, which Connor had
+already cleared in the app. `reconcileClient(clientId, kind)` is the repair: it
+checks every live row and marks exactly the absent ones deleted. `fetchOne()`
+already treats 404 as gone, so only deletion is out of step.
+
+## Onboarding sets the Trainerize programme tag (September 2026)
+
+Everyone who completes the onboarding form is a high ticket client. Connor,
+12 Sep 2026: Core clients are only ever moved across from the high ticket
+programme, so they already exist in Trainerize and he sets them up by hand.
+Nobody onboards straight onto Core, so `forms/routes/onboarding.js` has one
+programme and one tag, not a branch.
+
+`DEFAULT_PROGRAM` and `PROGRAM_TAG` sit together and must agree. The portal reads
+the first, Trainerize the second, and `reconcileClients()` treats the tag as the
+source of truth - so if they ever disagree, the nightly reconcile wins and
+rewrites the programme.
+
+**The tag was missing entirely until now.** The form created the client, the
+portal row and the welcome DM, but never tagged anyone. Stephen Hudson was the
+first real client through it and arrived untagged. Nothing broke, because a
+missing tag reads as "unknown" to the reconcile rather than "no programme", so it
+never cleared what was set - but he was absent from every tag-based view in the
+Trainerize app.
+
+### `/user/addTag` is not idempotent
+
+Tagging a client who already carries the tag returns **500 "Failed to add user to
+user tag"**, indistinguishable from a real failure. Verified against a live
+client on 12 Sep 2026.
+
+This bites on the admin Retry button, where a second sync would report a tag
+problem that does not exist. `ensureTag()` therefore checks rather than believes:
+on any failure it reads the tag's membership back, and only raises if the client
+genuinely is not on it. A tag that does not exist still throws, as it should.
+
+### A failed tag never fails the sign-up
+
+By the time the tag is attempted the client exists in Trainerize and their invite
+has gone. The failure is returned as `tagError`, folded into the submission's
+`sync_error` next to the over-limit warning, and surfaced in the admin area for
+Connor to fix by hand. The client sees a normal success screen.
+
 ## EOM auto messages, and the one-off month exception (August 2026)
 
 ### What was scheduled

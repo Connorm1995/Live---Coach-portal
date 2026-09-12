@@ -54,25 +54,6 @@ async function recipients(kind) {
   return rows.filter((r) => !optOut.has(r.name));
 }
 
-/**
- * Swap in any month that does not follow the usual last-Saturday rule.
- * Returns the adjusted date list plus a date -> body map for the sends whose
- * copy differs. Order is preserved because an exception only ever moves a
- * date earlier within its own month.
- */
-function applyEomExceptions(dates) {
-  const bodyByDate = {};
-  const applied = [];
-  const out = dates.map((date) => {
-    const ex = templates.EOM_EXCEPTIONS[date.slice(0, 7)];
-    if (!ex) return date;
-    bodyByDate[ex.date] = ex.body;
-    applied.push({ from: date, to: ex.date, reason: ex.reason });
-    return ex.date;
-  });
-  return { dates: out, bodyByDate, applied };
-}
-
 async function showStatus() {
   const { rows } = await pool.query(
     `SELECT c.name, a.kind, count(*)::int AS live,
@@ -158,9 +139,21 @@ async function switchClient(name, { commit }) {
   const wantKind = client.program === 'my_fit_coach' ? 'weekly' : 'eom';
   const wrongKind = wantKind === 'weekly' ? 'eom' : 'weekly';
   const tpl = wantKind === 'weekly' ? templates.WEEKLY : templates.EOM;
-  const dates = wantKind === 'weekly'
+  let dates = wantKind === 'weekly'
     ? am.nextSundays(tpl.occurrences)
     : am.nextLastSaturdays(tpl.occurrences);
+
+  // A client switched onto Core mid-year gets the same adjusted dates and
+  // wording as the yearly run, so they are never out of step with everyone
+  // else on a month that moved.
+  let bodyByDate = null;
+  let exceptions = [];
+  if (wantKind === 'eom') {
+    const adjusted = am.applyEomExceptions(dates);
+    dates = adjusted.dates;
+    bodyByDate = adjusted.bodyByDate;
+    exceptions = adjusted.applied;
+  }
 
   console.log(`${commit ? 'SWITCHING' : 'DRY RUN'} - ${client.name}`);
   console.log(`  programme  : ${client.program}  ->  wants ${wantKind} messages`);
@@ -168,13 +161,16 @@ async function switchClient(name, { commit }) {
   const stale = await am.liveCountFor(client.id, wrongKind);
   const alreadyRight = await am.liveCountFor(client.id, wantKind);
 
-  console.log(`  to remove  : ${stale} ${wrongKind} message(s)`);
+  console.log(`  to remove  : ${stale} future ${wrongKind} message(s), leaving any already sent`);
   if (alreadyRight > 0) {
     // scheduleForClient will skip rather than stack, so say so rather than
     // implying a fresh year is about to be created.
     console.log(`  to create  : none - already has ${alreadyRight} ${wantKind} message(s) scheduled`);
   } else {
     console.log(`  to create  : ${dates.length} ${wantKind} message(s), ${dates[0]} to ${dates[dates.length - 1]}`);
+  }
+  for (const ex of exceptions) {
+    console.log(`  exception  : ${ex.from} -> ${ex.to}, custom wording (${ex.reason})`);
   }
 
   if (!commit) {
@@ -183,8 +179,8 @@ async function switchClient(name, { commit }) {
   }
 
   if (stale > 0) {
-    const res = await am.rollbackClient(client.id, wrongKind);
-    console.log(`  removed ${res.deleted}/${res.total} ${wrongKind} messages`);
+    const res = await am.rollbackClient(client.id, wrongKind, { futureOnly: true });
+    console.log(`  removed ${res.deleted}/${res.total} future ${wrongKind} messages`);
     if (res.failures.length) console.log('  removal failures:', res.failures);
   }
 
@@ -192,7 +188,7 @@ async function switchClient(name, { commit }) {
   const out = await am.scheduleForClient({
     client, dates,
     sendTimeMinutes: tpl.sendTimeMinutes,
-    title: tpl.title, body: tpl.body,
+    title: tpl.title, body: tpl.body, bodyByDate,
     kind: wantKind, batchId, dryRun: false,
   });
   if (out.skipped) console.log(`  skipped: ${out.skipped}`);
@@ -253,7 +249,7 @@ async function run() {
   let bodyByDate = null;
   let exceptions = [];
   if (kind === 'eom') {
-    const adjusted = applyEomExceptions(dates);
+    const adjusted = am.applyEomExceptions(dates);
     dates = adjusted.dates;
     bodyByDate = adjusted.bodyByDate;
     exceptions = adjusted.applied;

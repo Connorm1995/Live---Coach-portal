@@ -58,12 +58,69 @@ async function trainerizePost(endpoint, body, attempt = 1) {
 }
 
 /**
- * Create a client in Trainerize from onboarding answers and have Trainerize
- * send them the invitation email (sendMail: true).
+ * Put a user tag on a client.
  *
- * Returns { trainerizeUserId }.
+ * The tag is how Trainerize records which programme someone is on, and the
+ * Coach Portal's nightly reconcile reads it back as the source of truth. A
+ * client created without one is not wrong in the portal, but they are missing
+ * from every tag-based view in the Trainerize app itself.
  */
-async function createClient(answers) {
+async function addTag(trainerizeUserId, tagName) {
+  return trainerizePost('/user/addTag', {
+    userID: Number(trainerizeUserId),
+    userTag: tagName,
+  });
+}
+
+/** Is this client already carrying the named tag? */
+async function hasTag(trainerizeUserId, tagName) {
+  const tagList = await trainerizePost('/userTag/getList', {});
+  const tag = (tagList.userTags || []).find((t) => t.name === tagName);
+  if (!tag) return false;
+  const data = await trainerizePost('/user/getClientList', {
+    userID: COACH_TRAINERIZE_ID,
+    view: 'activeClient',
+    filter: { userTag: tag.id },
+    start: 0,
+    count: 100,
+  });
+  return (data.users || []).some((u) => Number(u.id) === Number(trainerizeUserId));
+}
+
+/**
+ * Put a tag on a client, treating "already has it" as success.
+ *
+ * /user/addTag is NOT idempotent: tagging someone who already carries the tag
+ * returns a 500 reading "Failed to add user to user tag", which is
+ * indistinguishable from a real failure. Verified against a live client on
+ * 12 Sep 2026. That matters on the admin Retry button, where a second run
+ * would otherwise report a tag problem that does not exist.
+ *
+ * So a failure is checked rather than believed: if the tag is on the client
+ * afterwards, the job is done.
+ */
+async function ensureTag(trainerizeUserId, tagName) {
+  try {
+    await addTag(trainerizeUserId, tagName);
+  } catch (err) {
+    if (await hasTag(trainerizeUserId, tagName)) return;
+    throw err;
+  }
+}
+
+/**
+ * Create a client in Trainerize from onboarding answers and have Trainerize
+ * send them the invitation email (sendMail: true), then put them on the
+ * programme tag.
+ *
+ * Returns { trainerizeUserId, overLimit, tagError }.
+ *
+ * `tagError` rather than a throw: by the time the tag is attempted the client
+ * exists and their invite is on its way, so a tag failure must not fail the
+ * sign-up. It is handed back for the caller to record against the submission,
+ * where Connor can see it and fix the tag by hand.
+ */
+async function createClient(answers, { tag } = {}) {
   const payload = {
     user: {
       firstName: String(answers.first_name || '').trim(),
@@ -92,7 +149,16 @@ async function createClient(answers) {
   }
   // code 0 = created; code 1 = created but queued as over plan limit - both
   // give a real userID, and the invite still goes out when a seat frees up.
-  return { trainerizeUserId: result.userID, overLimit: result.code === 1 };
+  let tagError = null;
+  if (tag) {
+    try {
+      await ensureTag(result.userID, tag);
+    } catch (err) {
+      console.error('[onboarding] Tag failed:', err.message);
+      tagError = err.message;
+    }
+  }
+  return { trainerizeUserId: result.userID, overLimit: result.code === 1, tagError };
 }
 
 /**
@@ -114,4 +180,4 @@ async function sendMessage(trainerizeUserId, body) {
   }, 2);
 }
 
-module.exports = { createClient, sendMessage, trainerizePost };
+module.exports = { createClient, addTag, hasTag, ensureTag, sendMessage, trainerizePost };
