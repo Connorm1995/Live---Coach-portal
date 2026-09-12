@@ -459,73 +459,144 @@ function buildNutritionDetailResponse(row) {
 async function getCalendarData(clientId, tid, startDate, endDate) {
   if (!tid) return null;
 
-  const currentMonday = getCurrentMonday();
-  const rangeIsHistorical = endDate < currentMonday;
+  const missing = await findUncoveredDates(clientId, startDate, endDate);
 
-  // Check if we have workouts+cardio stored for this range
-  const [existingWorkouts, existingCardio] = await Promise.all([
-    pool.query(
-      `SELECT MIN(fetched_at) AS oldest, COUNT(*) AS cnt FROM client_workouts
-       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4`,
-      [clientId, COACH_ID, startDate, endDate]
-    ),
-    pool.query(
-      `SELECT MIN(fetched_at) AS oldest, COUNT(*) AS cnt FROM client_cardio
-       WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4`,
-      [clientId, COACH_ID, startDate, endDate]
-    ),
-  ]);
-
-  const hasWorkoutData = parseInt(existingWorkouts.rows[0]?.cnt) > 0;
-  const hasCardioData = parseInt(existingCardio.rows[0]?.cnt) > 0;
-  const hasAnyData = hasWorkoutData || hasCardioData;
-  const oldestFetch = existingWorkouts.rows[0]?.oldest || existingCardio.rows[0]?.oldest;
-  const dataIsFresh = hasAnyData && (rangeIsHistorical || isFresh(oldestFetch));
-
-  // Serve from DB if data exists and is fresh (historical = always fresh, current = within TTL)
-  if (dataIsFresh) {
+  // Every day in the range has been fetched (and historical days never change),
+  // so the DB is a complete answer.
+  if (missing.length === 0) {
     return buildCalendarFromDB(clientId, startDate, endDate);
   }
 
-  // Otherwise fetch from Trainerize and store
+  // Fetch only the span that needs it, then merge with what we already hold.
+  const fetchStart = missing[0];
+  const fetchEnd = missing[missing.length - 1];
+
+  const raw = await fetchAndStoreCalendar(clientId, tid, fetchStart, fetchEnd);
+
+  // Fetch failed - serve what we have rather than nothing
+  if (!raw) return buildCalendarFromDB(clientId, startDate, endDate);
+
+  const fromDb = await buildCalendarFromDB(clientId, startDate, endDate);
+  return mergeUnstoredItems(fromDb, raw);
+}
+
+// Which days in the range still need a Trainerize call?
+// A day needs fetching if it has never been fetched, or if it is in the current
+// week (still changing) and the last fetch is older than the TTL.
+async function findUncoveredDates(clientId, startDate, endDate) {
+  const currentMonday = getCurrentMonday();
+
+  const coverage = await pool.query(
+    `SELECT date::text AS date, fetched_at FROM client_calendar_coverage
+     WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4`,
+    [clientId, COACH_ID, startDate, endDate]
+  );
+
+  const coveredAt = {};
+  for (const row of coverage.rows) coveredAt[row.date] = row.fetched_at;
+
+  return dateRange(startDate, endDate).filter(date => {
+    const fetchedAt = coveredAt[date];
+    if (!fetchedAt) return true;              // never fetched
+    if (date < currentMonday) return false;   // historical, will not change
+    return !isFresh(fetchedAt);               // current week, refresh on TTL
+  });
+}
+
+// Calls calendar/getList for a date span, stores the completed sessions, and
+// records every day in the span as covered. Returns the raw response, or null
+// if the call failed (in which case nothing is marked covered).
+async function fetchAndStoreCalendar(clientId, tid, startDate, endDate) {
   const result = await trainerizePost('/calendar/getList', {
     userID: Number(tid), startDate, endDate, unitWeight: 'kg',
   }, { label: 'Store' });
 
   const raw = result.data;
+  if (!raw?.calendar || !Array.isArray(raw.calendar)) return null;
 
-  // Store completed workouts and cardio
-  if (raw?.calendar && Array.isArray(raw.calendar)) {
-    const WORKOUT_TYPES = ['workout', 'workoutRegular', 'workoutCircuit', 'workoutTimed', 'workoutInterval', 'workoutVideo'];
+  const WORKOUT_TYPES = ['workout', 'workoutRegular', 'workoutCircuit', 'workoutTimed', 'workoutInterval', 'workoutVideo'];
 
-    for (const day of raw.calendar) {
-      const items = day.items || [];
-      for (const item of items) {
-        const completed = item.status === 'tracked' || item.status === 'checkedIn';
-        if (!completed) continue;
+  // Scheduled sessions get moved and deleted in Trainerize, so they are
+  // replaced wholesale for the span rather than upserted. Completed sessions
+  // are never deleted here.
+  await pool.query(
+    `DELETE FROM client_workouts
+     WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
+       AND status = 'scheduled'`,
+    [clientId, COACH_ID, startDate, endDate]
+  );
+  await pool.query(
+    `DELETE FROM client_cardio
+     WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
+       AND status = 'scheduled'`,
+    [clientId, COACH_ID, startDate, endDate]
+  );
 
-        if (WORKOUT_TYPES.includes(item.type)) {
-          await pool.query(
-            `INSERT INTO client_workouts (coach_id, client_id, date, name, status, type, trainerize_id, fetched_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-             ON CONFLICT (coach_id, client_id, trainerize_id) DO UPDATE SET
-               status = EXCLUDED.status, fetched_at = now()`,
-            [COACH_ID, clientId, day.date, item.title, item.status, item.type, item.id]
-          );
-        } else if (item.type === 'cardio') {
-          await pool.query(
-            `INSERT INTO client_cardio (coach_id, client_id, date, name, status, trainerize_id, fetched_at)
-             VALUES ($1, $2, $3, $4, $5, $6, now())
-             ON CONFLICT (coach_id, client_id, trainerize_id) DO UPDATE SET
-               status = EXCLUDED.status, fetched_at = now()`,
-            [COACH_ID, clientId, day.date, item.title, item.status, item.id]
-          );
-        }
+  for (const day of raw.calendar) {
+    const items = day.items || [];
+    for (const item of items) {
+      const completed = item.status === 'tracked' || item.status === 'checkedIn';
+      if (!completed && item.status !== 'scheduled') continue;
+
+      if (WORKOUT_TYPES.includes(item.type)) {
+        await pool.query(
+          `INSERT INTO client_workouts (coach_id, client_id, date, name, status, type, trainerize_id, fetched_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+           ON CONFLICT (coach_id, client_id, trainerize_id) DO UPDATE SET
+             date = EXCLUDED.date, status = EXCLUDED.status, fetched_at = now()`,
+          [COACH_ID, clientId, day.date, item.title, item.status, item.type, item.id]
+        );
+      } else if (item.type === 'cardio') {
+        await pool.query(
+          `INSERT INTO client_cardio (coach_id, client_id, date, name, status, trainerize_id, fetched_at)
+           VALUES ($1, $2, $3, $4, $5, $6, now())
+           ON CONFLICT (coach_id, client_id, trainerize_id) DO UPDATE SET
+             date = EXCLUDED.date, status = EXCLUDED.status, fetched_at = now()`,
+          [COACH_ID, clientId, day.date, item.title, item.status, item.id]
+        );
       }
     }
   }
 
+  await markCalendarCovered(clientId, startDate, endDate);
+
   return raw;
+}
+
+async function markCalendarCovered(clientId, startDate, endDate) {
+  await pool.query(
+    `INSERT INTO client_calendar_coverage (coach_id, client_id, date, fetched_at)
+     SELECT $1, $2, d::date, now()
+     FROM generate_series($3::date, $4::date, interval '1 day') AS d
+     ON CONFLICT (coach_id, client_id, date) DO UPDATE SET fetched_at = now()`,
+    [COACH_ID, clientId, startDate, endDate]
+  );
+}
+
+// Workouts and cardio are stored, but bodystat, photo and similar markers are
+// not, so they exist solely in the freshly fetched response. Fold those back in
+// for the span that was just fetched. Items already served from the DB are
+// skipped by id.
+function mergeUnstoredItems(fromDb, raw) {
+  const dayMap = {};
+  for (const day of fromDb.calendar) dayMap[day.date] = day;
+
+  for (const day of (raw.calendar || [])) {
+    if (!day.date) continue;
+    if (!dayMap[day.date]) {
+      dayMap[day.date] = { date: day.date, items: [] };
+    }
+    const seen = new Set(dayMap[day.date].items.map(i => i.id));
+    for (const item of (day.items || [])) {
+      const completed = item.status === 'tracked' || item.status === 'checkedIn';
+      if (completed) continue; // already served from the DB
+      if (seen.has(item.id)) continue;
+      dayMap[day.date].items.push(item);
+    }
+  }
+
+  const calendar = Object.keys(dayMap).sort().map(date => dayMap[date]);
+  return { calendar };
 }
 
 // Reconstruct the Trainerize calendar shape { calendar: [{ date, items }] } from DB rows.
@@ -828,6 +899,8 @@ module.exports = {
   getNutritionDetail,
   getCalendarData,
   getWorkoutDetails,
+  fetchAndStoreCalendar,
+  findUncoveredDates,
   upsertBodyStat,
   upsertWorkout,
   upsertCardio,

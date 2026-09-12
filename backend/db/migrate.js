@@ -459,6 +459,26 @@ async function migrate() {
       ON client_cardio(client_id, date);
     `);
 
+    // Calendar coverage - one row per day that has actually been fetched from
+    // calendar/getList. Without this the store cannot tell "no sessions that
+    // day" apart from "never asked Trainerize about that day", so a narrow
+    // fetch (the 3 week session calendar) made wider ranges (a training plan)
+    // look fully cached and their sessions never appeared.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_calendar_coverage (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(coach_id, client_id, date)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_calendar_coverage_client_date
+      ON client_calendar_coverage(client_id, date);
+    `);
+
     // Backfill progress tracking - resume capability for the backfill script
     await client.query(`
       CREATE TABLE IF NOT EXISTS backfill_progress (
