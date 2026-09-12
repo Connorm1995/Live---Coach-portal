@@ -10,6 +10,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { trainerizePost: tzPost } = require('../lib/trainerize');
 const store = require('../lib/trainerize-store');
+const whoopStore = require('../lib/whoop-store');
 const { parseScores, parseFormAnswers, SCORE_CATEGORIES } = require('../lib/overview-parsers');
 
 const router = express.Router();
@@ -772,7 +773,65 @@ router.get('/:id/health', async (req, res) => {
     const stepTarget = settingsResult.rows[0]?.step_target || 10000;
     const stepsAvg = stepsData.length > 0 ? Math.round(stepsData.reduce((s, d) => s + d.count, 0) / stepsData.length) : null;
 
-    res.json({ sleep: sleepData, steps: { data: stepsData, target: stepTarget, average: stepsAvg }, restingHR });
+    // Whoop adds recovery, HRV and strain, which Trainerize has no equivalent
+    // for, and enriches each night of sleep with performance and stages.
+    //
+    // `whoop` is null for a Trainerize client, which is how the frontend knows
+    // to render the Overview exactly as it always has.
+    let whoopBlock = null;
+    if (await whoopStore.usesWhoop(id)) {
+      const days = await whoopStore.getDaily(id, last10.start, last10.end);
+
+      // Sleep detail is keyed by the night the client went to BED, matching
+      // sleepData above, while recovery and strain stay on the morning Whoop
+      // files them under. Sending both keys avoids the frontend having to know
+      // that rule.
+      const sleepDetail = {};
+      for (const d of days) {
+        if (d.sleepNightDate) {
+          sleepDetail[d.sleepNightDate] = {
+            performance: d.sleepPerformance,
+            efficiency: d.sleepEfficiency,
+            consistency: d.sleepConsistency,
+            neededHours: d.sleepNeededHours,
+            remHours: d.remHours,
+            deepHours: d.deepHours,
+            lightHours: d.lightHours,
+            awakeHours: d.awakeHours,
+            disturbances: d.disturbances,
+            respiratoryRate: d.respiratoryRate,
+          };
+        }
+      }
+
+      const avg = (key) => {
+        const vals = days.map(d => d[key]).filter(v => v != null);
+        return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+      };
+
+      whoopBlock = {
+        days,
+        sleepDetail,
+        averages: {
+          recovery: avg('recoveryScore'),
+          hrv: avg('hrv'),
+          strain: avg('strain'),
+          calories: avg('calories'),
+          sleepPerformance: avg('sleepPerformance'),
+        },
+        // Whoop has no step count, so the steps tile is still Trainerize-fed
+        // even for a Whoop client. The frontend says so rather than implying
+        // the strap counted them.
+        stepsSource: 'trainerize',
+      };
+    }
+
+    res.json({
+      sleep: sleepData,
+      steps: { data: stepsData, target: stepTarget, average: stepsAvg },
+      restingHR,
+      whoop: whoopBlock,
+    });
   } catch (err) {
     console.error('[ClientOverview/health] Error:', err.message);
     res.status(500).json({ error: 'Failed to fetch health data' });

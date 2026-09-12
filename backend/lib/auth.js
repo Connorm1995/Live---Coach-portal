@@ -207,6 +207,14 @@ function isPublicPath(pathname) {
     || pathname === '/login'
     || pathname === '/logout'
     || pathname === '/robots.txt'
+    || pathname === '/privacy'
+    // Clients have no portal login and never will, so the pages they are sent
+    // to cannot sit behind one. A redirect target behind this gate would send a
+    // client straight to the coach's admin password prompt after they approved
+    // at Whoop - which is exactly the bug the unfinished Oura redirect in .env
+    // was set up to produce. These paths are guarded by single-use, expiring
+    // link tokens instead; see routes/connect.js.
+    || pathname.startsWith('/connect/whoop/')
     || pathname.startsWith('/webhooks/');
 }
 

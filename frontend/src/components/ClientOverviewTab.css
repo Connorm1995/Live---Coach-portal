@@ -1921,3 +1921,205 @@
   font-family: var(--font-body);
   font-size: 11px;
 }
+
+/* --- Whoop ---------------------------------------------------------------
+   Only rendered for a client whose health data comes from Whoop. Uses the
+   existing palette variables rather than introducing Whoop's own brand
+   colours, so a Whoop client's Overview still looks like the portal.
+   The one exception is the recovery band colours, which carry meaning the
+   coach already reads that way in Whoop's own app. */
+
+.client-overview__whoop-connect {
+  margin-bottom: var(--space-3);
+}
+
+.client-overview__whoop-connect-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-slate);
+  cursor: pointer;
+}
+
+.client-overview__whoop-connect-toggle:hover {
+  color: var(--color-black);
+}
+
+.client-overview__whoop-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 8px;
+}
+
+.client-overview__whoop-dot--on   { background: var(--color-cal-cardio); }
+.client-overview__whoop-dot--off  { background: var(--color-red); }
+.client-overview__whoop-dot--idle { background: var(--color-border); }
+
+.client-overview__whoop-connect-body {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  max-width: 640px;
+}
+
+.client-overview__whoop-help {
+  margin: 0 0 var(--space-3);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-slate);
+}
+
+.client-overview__whoop-error {
+  margin: 0 0 var(--space-3);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-red);
+}
+
+.client-overview__whoop-btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-teal);
+  background: var(--color-teal);
+  color: var(--color-white);
+  cursor: pointer;
+}
+
+.client-overview__whoop-btn:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.client-overview__whoop-btn--danger {
+  background: var(--color-white);
+  color: var(--color-red);
+  border-color: var(--color-red);
+}
+
+.client-overview__whoop-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.client-overview__whoop-link-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: var(--color-off-white);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 7px 10px;
+  word-break: break-all;
+  flex: 1 1 260px;
+}
+
+.client-overview__whoop-link-note {
+  font-size: 12px;
+  color: var(--color-slate);
+  flex: 1 1 100%;
+}
+
+/* --- Whoop metric strip --- */
+
+.client-overview__whoop {
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--space-4);
+}
+
+.client-overview__whoop-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.client-overview__whoop-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-black);
+}
+
+.client-overview__whoop-note {
+  font-size: 12px;
+  color: var(--color-slate);
+}
+
+.client-overview__whoop-calibrating {
+  margin: 0 0 var(--space-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-amber);
+}
+
+.client-overview__whoop-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.client-overview__whoop-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-off-white);
+  border-left-width: 3px;
+  border-left-color: var(--color-border);
+}
+
+/* Whoop's own recovery bands: green at or above 67, yellow 34 to 66, red below. */
+.client-overview__whoop-tile--high { border-left-color: var(--color-cal-cardio); }
+.client-overview__whoop-tile--mid  { border-left-color: var(--color-cal-bodystats); }
+.client-overview__whoop-tile--low  { border-left-color: var(--color-red); }
+
+.client-overview__whoop-tile-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-slate);
+}
+
+.client-overview__whoop-tile-value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-black);
+  font-variant-numeric: tabular-nums;
+}
+
+.client-overview__whoop-tile-suffix {
+  font-size: 14px;
+  font-weight: 500;
+  margin-left: 2px;
+  color: var(--color-slate);
+}
+
+.client-overview__whoop-tile-avg {
+  font-size: 11.5px;
+  color: var(--color-slate);
+}

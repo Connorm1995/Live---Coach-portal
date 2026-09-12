@@ -12,6 +12,8 @@ const calendarRoutes = require('./routes/calendar');
 const messageRoutes = require('./routes/messages');
 const settingsRoutes = require('./routes/settings');
 const clientOverviewRoutes = require('./routes/client-overview');
+const whoopRoutes = require('./routes/whoop');
+const { router: connectRoutes } = require('./routes/connect');
 const { startScheduler } = require('./lib/scheduler');
 const auth = require('./lib/auth');
 const { securityHeaders } = require('./lib/security-headers');
@@ -219,6 +221,12 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/client-overview', clientOverviewRoutes);
+app.use('/api/whoop', whoopRoutes);
+
+// Public, client-facing: the Whoop connect pages and the privacy policy. Listed
+// in auth.isPublicPath, so the login gate above lets them through.
+app.use(connectRoutes);
+
 app.use('/webhooks', webhookRoutes);
 
 // `scheduler` is reported here on purpose. The whole risk with an opt-in switch

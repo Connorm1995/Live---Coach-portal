@@ -8,6 +8,7 @@
 
 const pool = require('../db/pool');
 const { trainerizePost } = require('./trainerize');
+const whoopStore = require('./whoop-store');
 
 const COACH_ID = 1;
 const FRESH_TTL_MS = 30 * 60 * 1000; // 30 minutes for current-week data
@@ -152,6 +153,15 @@ async function getBodyStats(clientId, tid, startDate, endDate) {
 // ---------------------------------------------------------------------------
 
 async function getSleepData(clientId, tid, startDate, endDate) {
+  // A Whoop client is served entirely out of the Whoop tables, in this same
+  // shape, so nothing above this line has to know which watch the data came
+  // from. Trainerize is never called for them - it would only return the
+  // lossier copy of the same nights that arrived via Apple Health.
+  if (await whoopStore.usesWhoop(clientId)) {
+    await whoopStore.refreshIfStale(clientId, startDate, endDate);
+    return whoopStore.buildSleepResponse(clientId, startDate, endDate);
+  }
+
   if (!tid) return null;
 
   const currentMonday = getCurrentMonday();
@@ -228,6 +238,15 @@ function buildSleepResponse(rows) {
 // ---------------------------------------------------------------------------
 
 async function getHealthData(clientId, tid, type, startDate, endDate) {
+  // Whoop answers for resting heart rate and calories burned. It has no step
+  // count of any kind, so `step` deliberately falls through to Trainerize,
+  // which still receives steps from the client's phone via Apple Health.
+  if (type !== 'step' && await whoopStore.usesWhoop(clientId)) {
+    await whoopStore.refreshIfStale(clientId, startDate, endDate);
+    const fromWhoop = await whoopStore.buildHealthResponse(clientId, type, startDate, endDate);
+    if (fromWhoop) return fromWhoop;
+  }
+
   if (!tid) return null;
 
   const currentMonday = getCurrentMonday();

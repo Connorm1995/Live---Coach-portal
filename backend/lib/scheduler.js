@@ -606,6 +606,59 @@ async function maybeReconcileClients() {
   await reconcileClients();
 }
 
+/**
+ * Daily Whoop pull for every connected client.
+ *
+ * Runs on the scheduler, which means it runs ONLY on Railway: SCHEDULER_ENABLED
+ * is off by default so a laptop never becomes a second worker. That is more
+ * important here than anywhere else in this file. Whoop rotates the refresh
+ * token on every renewal and kills the previous one, so two instances renewing
+ * the same connection leaves one of them holding a dead token and the client
+ * has to go through the Whoop approval screen again.
+ *
+ * Runs at 07:00 Dublin, after Whoop has scored the night's sleep and recovery.
+ */
+let lastWhoopDay = null;
+async function maybeSyncWhoop() {
+  const dublin = getDublinTime();
+  const dayKey = `${dublin.year}-${String(dublin.month).padStart(2, '0')}-${String(dublin.day).padStart(2, '0')}`;
+  if (dayKey === lastWhoopDay) return;
+  if (dublin.hour < 7) return;
+  lastWhoopDay = dayKey;
+
+  const whoopStore = require('./whoop-store');
+  const { rows } = await pool.query(
+    `SELECT w.client_id, c.name
+     FROM client_whoop_connections w
+     JOIN clients c ON c.id = w.client_id
+     WHERE w.revoked_at IS NULL AND c.active = true`
+  );
+  if (rows.length === 0) return;
+
+  console.log(`[Whoop] Daily sync for ${rows.length} client(s) (${dayKey} Dublin)`);
+
+  // A fortnight, not a day. Whoop restates recent records as sleep is rescored
+  // and late workouts land, so re-reading the last two weeks costs a handful of
+  // requests and quietly repairs anything that arrived after yesterday's run.
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 14);
+
+  for (const row of rows) {
+    try {
+      const result = await whoopStore.sync(
+        row.client_id, whoopStore.dublinDate(start), whoopStore.dublinDate(end)
+      );
+      if (!result.ok) {
+        console.warn(`[Whoop] ${row.name}: ${result.reason}${result.error ? ' - ' + result.error : ''}`);
+      }
+    } catch (err) {
+      // One client's broken connection must never stop the others syncing.
+      console.error(`[Whoop] ${row.name} sync threw:`, err.message);
+    }
+  }
+}
+
 function startScheduler() {
   console.log('[Scheduler] Started - checking every 60 seconds (all times UTC)');
   setInterval(async () => {
@@ -614,6 +667,7 @@ function startScheduler() {
     await processReminders();
     await maybeReconcileClients();
     await maybeRunBackup();
+    await maybeSyncWhoop();
   }, 60 * 1000);
 
   // Run on startup after 5s delay to catch any due items
@@ -623,6 +677,7 @@ function startScheduler() {
     await processReminders();
     await maybeReconcileClients();
     await maybeRunBackup();
+    await maybeSyncWhoop();
   }, 5000);
 }
 

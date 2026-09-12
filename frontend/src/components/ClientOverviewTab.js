@@ -788,6 +788,263 @@ function StepsGraph({ data, target, average }) {
 
 // ─── SleepGraph (with hours/times toggle) ──────────────────────────
 
+// ---------------------------------------------------------------------------
+// Whoop
+// ---------------------------------------------------------------------------
+// Only rendered for a client whose health data comes from Whoop. A Trainerize
+// client gets `whoop: null` from the API and this whole section stays hidden,
+// so nothing about the existing Overview changes for anyone else.
+
+function WhoopStrip({ whoop }) {
+  if (!whoop) return null;
+
+  const { averages, days } = whoop;
+  const latest = [...(days || [])].reverse().find(d => d.recoveryScore != null) || null;
+
+  // Whoop's own bands. Shown as colour as well as number so the state reads at
+  // a glance rather than having to be worked out.
+  const band = (score) => {
+    if (score == null) return 'none';
+    if (score >= 67) return 'high';
+    if (score >= 34) return 'mid';
+    return 'low';
+  };
+
+  const tiles = [
+    {
+      key: 'recovery',
+      label: 'Recovery',
+      value: latest?.recoveryScore != null ? Math.round(latest.recoveryScore) : null,
+      suffix: '%',
+      avg: averages?.recovery,
+      avgSuffix: '%',
+      band: band(latest?.recoveryScore),
+    },
+    {
+      key: 'hrv',
+      label: 'HRV',
+      value: latest?.hrv != null ? Math.round(latest.hrv) : null,
+      suffix: 'ms',
+      avg: averages?.hrv,
+      avgSuffix: 'ms',
+    },
+    {
+      key: 'strain',
+      label: 'Day strain',
+      value: latest?.strain != null ? latest.strain.toFixed(1) : null,
+      suffix: '',
+      avg: averages?.strain,
+      avgSuffix: '',
+    },
+    {
+      key: 'calories',
+      label: 'Calories out',
+      value: latest?.calories != null ? latest.calories.toLocaleString() : null,
+      suffix: '',
+      avg: averages?.calories != null ? Math.round(averages.calories) : null,
+      avgSuffix: '',
+    },
+  ];
+
+  const calibrating = (days || []).some(d => d.calibrating);
+
+  return (
+    <div className="client-overview__whoop">
+      <div className="client-overview__whoop-head">
+        <h3 className="client-overview__whoop-title">Whoop</h3>
+        <span className="client-overview__whoop-note">
+          Last 10 days. Steps still come from Trainerize - Whoop does not count them.
+        </span>
+      </div>
+
+      {calibrating && (
+        <p className="client-overview__whoop-calibrating">
+          Some days are missing because Whoop was still calibrating the strap and its
+          scores for those days are not meaningful.
+        </p>
+      )}
+
+      <div className="client-overview__whoop-tiles">
+        {tiles.map(t => (
+          <div
+            key={t.key}
+            className={`client-overview__whoop-tile client-overview__whoop-tile--${t.band || 'plain'}`}
+          >
+            <span className="client-overview__whoop-tile-label">{t.label}</span>
+            <span className="client-overview__whoop-tile-value">
+              {t.value != null ? t.value : '-'}
+              {t.value != null && t.suffix ? (
+                <span className="client-overview__whoop-tile-suffix">{t.suffix}</span>
+              ) : null}
+            </span>
+            <span className="client-overview__whoop-tile-avg">
+              {t.avg != null ? `${t.avg}${t.avgSuffix} average` : 'No average yet'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The coach's Whoop controls: generate the link, see the state, disconnect.
+ *
+ * Deliberately quiet when there is nothing to do. Once a client is connected
+ * and syncing this collapses to a single line, because at that point it is
+ * status rather than a task.
+ */
+function WhoopConnect({ clientId, clientName }) {
+  const [status, setStatus] = useState(null);
+  const [link, setLink] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/whoop/${clientId}/status`);
+      if (!res.ok) return;
+      setStatus(await res.json());
+    } catch {
+      // Status is informational. A blip here must not break the Overview.
+    }
+  }, [clientId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const makeLink = async () => {
+    setBusy(true); setError(null); setCopied(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/whoop/${clientId}/link`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not create the link');
+      setLink(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setError('Could not copy. Select the link and copy it by hand.');
+    }
+  };
+
+  const disconnect = async () => {
+    const ok = window.confirm(
+      `Disconnect Whoop for ${clientName || 'this client'}?\n\n` +
+      `This permanently deletes their Whoop data from the portal and puts them ` +
+      `back on Trainerize. It cannot be undone.`
+    );
+    if (!ok) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/whoop/${clientId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not disconnect');
+      setLink(null);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!status) return null;
+
+  // Nothing to offer until the Whoop app credentials are in Railway.
+  if (!status.configured && !status.connected) return null;
+
+  const connected = status.connected && status.healthSource === 'whoop';
+
+  return (
+    <div className="client-overview__whoop-connect">
+      <button
+        type="button"
+        className="client-overview__whoop-connect-toggle"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        <span className={`client-overview__whoop-dot client-overview__whoop-dot--${
+          connected ? 'on' : status.revoked ? 'off' : 'idle'
+        }`} />
+        Whoop: {connected ? 'connected' : status.revoked ? 'access revoked' : 'not connected'}
+      </button>
+
+      {open && (
+        <div className="client-overview__whoop-connect-body">
+          {error && <p className="client-overview__whoop-error">{error}</p>}
+
+          {status.lastSyncError && (
+            <p className="client-overview__whoop-error">
+              Last sync problem: {status.lastSyncError}
+            </p>
+          )}
+
+          {!connected && (
+            <>
+              <p className="client-overview__whoop-help">
+                {status.revoked
+                  ? `${clientName || 'This client'} revoked access at Whoop. Send a new link to reconnect.`
+                  : `Send ${clientName || 'this client'} a personal link. They log into Whoop, approve, and their data starts loading.`}
+              </p>
+              <button
+                type="button"
+                className="client-overview__whoop-btn"
+                onClick={makeLink}
+                disabled={busy}
+              >
+                {busy ? 'Working...' : 'Create connect link'}
+              </button>
+
+              {link && (
+                <div className="client-overview__whoop-link">
+                  <code className="client-overview__whoop-link-url">{link.url}</code>
+                  <button type="button" className="client-overview__whoop-btn" onClick={copy}>
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                  <span className="client-overview__whoop-link-note">
+                    Expires in {link.expiresInDays} days and works once.
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+
+          {connected && (
+            <>
+              <p className="client-overview__whoop-help">
+                Sleep, resting heart rate and calories come from Whoop.
+                Steps, nutrition, weight and programmed sessions still come from Trainerize.
+                {status.lastSyncAt
+                  ? ` Last updated ${new Date(status.lastSyncAt).toLocaleString('en-IE', { timeZone: 'Europe/Dublin' })} (Dublin time).`
+                  : ' Not synced yet.'}
+              </p>
+              <button
+                type="button"
+                className="client-overview__whoop-btn client-overview__whoop-btn--danger"
+                onClick={disconnect}
+                disabled={busy}
+              >
+                {busy ? 'Working...' : 'Disconnect and delete data'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SleepGraph({ data, sleepMode, setSleepMode }) {
   if (!data || data.length === 0) {
     return (
@@ -1501,6 +1758,10 @@ function ClientOverviewTab({ clientId, client, presentOpen, onPresentClose }) {
 
       {/* Charts below calendar */}
       <div className="client-overview__charts">
+        {/* Whoop: only renders when this client's health data comes from Whoop */}
+        <WhoopConnect clientId={clientId} clientName={client?.name} />
+        <WhoopStrip whoop={healthData?.whoop} />
+
         {/* Row 1: Steps + Sleep side by side */}
         <div className="client-overview__chart-row">
           <StepsGraph

@@ -2486,3 +2486,139 @@ runs before any database call, so the routes are mounted and their guards are
 intact. The removed path now falls through to the front end's catch-all and
 serves `index.html` rather than erroring. The original 662 line file is kept at
 `~/coach-portal-backup-claude/2026-09-12-cleanup/repo/backend/routes/overview.js.ORIGINAL-662-lines`.
+
+---
+
+## Whoop integration (12 Sep 2026)
+
+A client's health data can now come from Whoop instead of Trainerize. The
+switch is per client: `clients.health_source` is `trainerize` or `whoop`, and
+everyone defaults to `trainerize`.
+
+### What Whoop actually replaces
+
+Only three things: **sleep**, **resting heart rate** and **calories burned**.
+That is the complete list, and it is narrower than it first looks.
+
+- **Steps stay on Trainerize, permanently.** Whoop's API has no step count of
+  any kind - not in the v2 reference, not in the changelog. The Whoop 5.0 app
+  shows steps, but the figure is not exposed to developers. Connor's client gets
+  steps into Trainerize from Apple Health, so the tile keeps working;
+  `getHealthData` deliberately lets `type === 'step'` fall through to Trainerize
+  even for a Whoop client.
+- **Nutrition, weight, body fat and measurements stay.** Whoop has no food
+  logging, and its one body weight figure is typed in by the member by hand
+  rather than tracked, so it is no use for a trend.
+- **Programmed workouts stay.** Those are the coach's programming. Whoop's
+  auto-detected sessions are a different thing and live in their own table.
+- **New data with no Trainerize equivalent:** recovery score, HRV, day strain,
+  sleep performance / consistency / efficiency, sleep stages, respiratory rate,
+  blood oxygen, skin temperature.
+
+### Why Whoop data is in its own tables
+
+`client_sleep` and `client_health_data` key on `(client, date, type)` with no
+column saying where a row came from. Writing Whoop rows into them would either
+collide with the Trainerize row for the same night or force those unique
+constraints to be rebuilt under live data. Separate tables mean the switch is
+reversible: flip `health_source` back and the original Trainerize rows are still
+there, untouched.
+
+### The seam
+
+`getSleepData` and `getHealthData` in `lib/trainerize-store.js` check
+`health_source` and serve a Whoop client from `client_whoop_daily`, rebuilding
+the exact response shape Trainerize would have returned. No route and no React
+component knows Whoop exists. The new Overview tiles are the only place that
+does, and they render from `healthData.whoop`, which is `null` for everyone
+else.
+
+### Which day a number belongs to
+
+This is the part that silently goes wrong, so it is worth stating plainly.
+
+Whoop thinks in **cycles**, which run wake-to-wake rather than midnight to
+midnight. A cycle starting Tuesday morning carries Tuesday's strain and the
+recovery scored from the sleep that ended that morning. The portal, meanwhile,
+has always filed sleep under **the night it started** - `parseSleepData` in
+`routes/client-overview.js` credits a sleep beginning before noon to the
+previous day, so 1am Tuesday is "Monday night".
+
+Both conventions are kept, in two columns:
+
+- `client_whoop_daily.date` - the morning he woke. Recovery, HRV, resting HR,
+  strain and calories are keyed here, matching what he sees in his own Whoop
+  app.
+- `client_whoop_daily.sleep_night_date` - the evening he went to bed. Sleep is
+  served on this key so the sleep tile and the calendar agree with every other
+  client.
+
+`sleepNightDate` in `lib/whoop-store.js` duplicates the rule in
+`parseSleepData` on purpose. If one changes, the other has to, or a Whoop
+client's calendar drifts a day away from everyone else's.
+
+### Refresh tokens rotate, and that is dangerous
+
+Whoop issues a **new refresh token on every renewal and kills the previous
+one**. Two processes renewing the same connection at once means one of them is
+left holding a dead token, the connection is permanently broken, and the client
+has to go through the Whoop approval screen again.
+
+Two defences, in `lib/whoop.js`:
+
+- The connection row is locked `FOR UPDATE` for the whole renewal, with the HTTP
+  call inside the open transaction, so "renewed at Whoop" and "written down
+  here" are one step. A second caller blocks, re-reads, finds a token that is no
+  longer expiring, and returns it rather than burning another refresh.
+- An in-process promise map, so one process never races itself.
+
+The daily sync runs on the scheduler, which means `SCHEDULER_ENABLED` gates it -
+the same reason it gates everything else. A laptop must never become a second
+worker on a Whoop connection. This is the strongest instance of that rule in the
+codebase: elsewhere a double run sends a message twice, here it destroys the
+connection.
+
+### Tokens are encrypted at rest
+
+AES-256-GCM, keyed from `WHOOP_TOKEN_KEY` or, when that is unset, derived from
+`PORTAL_SESSION_SECRET`. The database is backed up nightly to R2, so plain-text
+tokens would mean live credentials for a named person's health data sitting in
+object storage. The fallback means connecting a client needs no extra
+environment setup. Rotating `PORTAL_SESSION_SECRET` therefore also invalidates
+stored Whoop tokens; the client reconnects, and the failure is visible on their
+client page rather than silent.
+
+### The callback has to be outside the login gate
+
+Clients have no portal login and never will. `isPublicPath` now also allows
+`/connect/whoop/` and `/privacy`.
+
+The unfinished Oura setup in `.env` is the cautionary example: `OURA_REDIRECT_URI`
+points at `/api/connect/oura/callback`, which sits behind the gate. A client
+approving at Oura would have been redirected straight to the coach's admin
+password prompt with no way forward. The Whoop paths are guarded instead by
+single-use, 14-day link tokens minted in the portal.
+
+### Calories, and not counting them twice
+
+Whoop writes to Apple Health, Apple Health feeds Trainerize. So for this client
+the sleep and resting HR already in the portal are probably Whoop numbers that
+travelled the long way round - lossy (no recovery, HRV, strain or stages) and
+prone to dropping days when the phone does not sync. Going direct is about depth
+and reliability rather than a new source.
+
+The same bridge is why calories come from Whoop **only** for a Whoop client, and
+why `client_whoop_workouts` is kept apart from `client_workouts` and
+`client_cardio`. Merging them would show every session twice with two different
+numbers on it.
+
+### Whoop's own limits
+
+- 100 requests a minute, 10,000 a day. A six-month backfill is about 30
+  requests, so this is not a constraint, but `getAll` pauses between pages
+  anyway.
+- Collection endpoints cap `limit` at 25 and page with an opaque `nextToken`.
+- An app serves up to 10 members without approval, which is plenty for this and
+  avoids an approval queue reported to be running into months.
+- `user_calibrating` marks the first days on a new strap. Those scores are real
+  numbers that mean nothing, so they are stored but withheld from the charts.

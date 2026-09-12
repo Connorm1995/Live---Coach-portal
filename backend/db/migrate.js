@@ -575,6 +575,171 @@ async function migrate() {
       ON exercise_load_modes(coach_id);
     `);
 
+    // -----------------------------------------------------------------------
+    // Whoop
+    // -----------------------------------------------------------------------
+    // Whoop data deliberately lives in its own tables rather than being mixed
+    // into client_sleep / client_health_data alongside Trainerize.
+    //
+    // Those two tables key on (client, date, type) with no notion of where a
+    // row came from, so writing Whoop rows into them would either collide with
+    // the Trainerize row for the same night or force the unique constraints to
+    // be rebuilt underneath live data. Keeping Whoop separate means the switch
+    // is reversible: flip clients.health_source back and the original
+    // Trainerize rows are still sitting there untouched.
+    //
+    // The join happens in lib/trainerize-store.js, which serves a Whoop client
+    // out of these tables in the exact shape the routes already expect.
+
+    // Which source feeds a client's sleep, resting HR and calories. Everything
+    // else (steps, nutrition, weight, programmed workouts) always comes from
+    // Trainerize - Whoop's API has no equivalent.
+    await client.query(`
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS health_source VARCHAR
+      NOT NULL DEFAULT 'trainerize'
+      CHECK (health_source IN ('trainerize', 'whoop'))
+    `);
+
+    // One row per connected client. Tokens are encrypted at rest because the
+    // nightly R2 backup would otherwise carry live health-data credentials in
+    // plain text - see lib/whoop.js.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_whoop_connections (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        whoop_user_id BIGINT,
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expires_at TIMESTAMPTZ,
+        scopes TEXT,
+        connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        revoked_at TIMESTAMPTZ,
+        backfill_done BOOLEAN NOT NULL DEFAULT false,
+        last_sync_at TIMESTAMPTZ,
+        last_sync_error TEXT,
+        UNIQUE(coach_id, client_id)
+      );
+    `);
+
+    // The personal link the coach sends a client. Short-lived on purpose: a
+    // link that never expires is a permanent handle on someone's health data
+    // sitting in a WhatsApp thread.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS whoop_connect_links (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        token VARCHAR NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_whoop_links_token ON whoop_connect_links(token);
+    `);
+
+    // One row per client per day. `date` is the Europe/Dublin date of the
+    // MORNING the client woke, which is how Whoop's own app files a night's
+    // sleep - so the number here matches the number on his phone.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_whoop_daily (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+
+        recovery_score NUMERIC(5,2),
+        hrv_ms NUMERIC(6,2),
+        resting_hr INTEGER,
+        spo2_percent NUMERIC(5,2),
+        skin_temp_c NUMERIC(5,2),
+        recovery_calibrating BOOLEAN NOT NULL DEFAULT false,
+
+        day_strain NUMERIC(5,2),
+        calories_kcal INTEGER,
+        avg_hr INTEGER,
+        max_hr INTEGER,
+
+        -- Two different days, and both are needed.
+        --
+        -- "date" above is the morning the client WOKE, which is how Whoop files
+        -- a cycle: the recovery, HRV and strain on this row all belong to that
+        -- day, and reading them here matches what he sees in his own app.
+        --
+        -- "sleep_night_date" is the evening he went to BED, which is how the
+        -- portal has always filed sleep (see parseSleepData in
+        -- routes/client-overview.js). The sleep tile and the calendar are keyed
+        -- that way for every other client, so Whoop sleep has to be too or his
+        -- dashboard would disagree with itself.
+        --
+        -- Normally sleep_night_date = date - 1. It is stored rather than
+        -- derived because that is not guaranteed: a nap-only day, or a night
+        -- that runs past noon, breaks the assumption.
+        sleep_night_date DATE,
+        sleep_start TIMESTAMPTZ,
+        sleep_end TIMESTAMPTZ,
+        sleep_seconds INTEGER,
+        sleep_needed_seconds INTEGER,
+        sleep_performance NUMERIC(5,2),
+        sleep_consistency NUMERIC(5,2),
+        sleep_efficiency NUMERIC(5,2),
+        rem_seconds INTEGER,
+        deep_seconds INTEGER,
+        light_seconds INTEGER,
+        awake_seconds INTEGER,
+        sleep_cycles INTEGER,
+        disturbances INTEGER,
+        respiratory_rate NUMERIC(5,2),
+        nap_seconds INTEGER,
+
+        cycle_id BIGINT,
+        sleep_uuid VARCHAR,
+        fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(coach_id, client_id, date)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_whoop_daily_client_date
+      ON client_whoop_daily(client_id, date);
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_whoop_daily_client_night
+      ON client_whoop_daily(client_id, sleep_night_date);
+    `);
+
+    // Whoop's auto-detected sessions. Kept apart from client_workouts and
+    // client_cardio on purpose: those hold what the coach PRESCRIBED, this
+    // holds what the client's heart actually did. Merging them would double up
+    // every session, because Whoop already feeds Apple Health, which feeds
+    // Trainerize.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_whoop_workouts (
+        id SERIAL PRIMARY KEY,
+        coach_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        date DATE NOT NULL,
+        whoop_id VARCHAR NOT NULL,
+        sport VARCHAR,
+        start_time TIMESTAMPTZ,
+        end_time TIMESTAMPTZ,
+        duration_seconds INTEGER,
+        strain NUMERIC(5,2),
+        avg_hr INTEGER,
+        max_hr INTEGER,
+        calories_kcal INTEGER,
+        distance_m NUMERIC(10,2),
+        zone_json JSONB,
+        fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(coach_id, client_id, whoop_id)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_whoop_workouts_client_date
+      ON client_whoop_workouts(client_id, date);
+    `);
+
     await client.query('COMMIT');
     console.log('Migration complete.');
   } catch (err) {
