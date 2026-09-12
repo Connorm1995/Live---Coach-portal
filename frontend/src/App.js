@@ -117,9 +117,14 @@ function App() {
     setPresentOpen(false);
   }, [selectedClientId]);
 
+  // Picking a client always lands on a real tab. `defaultTab` is only honoured
+  // when it names one of CLIENT_TABS: a caller asking for a tab that no longer
+  // exists used to leave clientTab set to a key nothing renders, so the content
+  // area came up blank and the coach had to click Overview to see anything.
   const handleSelectClient = useCallback((clientId, defaultTab) => {
     setSelectedClientId(clientId);
-    if (defaultTab) setClientTab(defaultTab);
+    const known = CLIENT_TABS.some((tab) => tab.key === defaultTab);
+    setClientTab(known ? defaultTab : 'overview');
     setHubOpen(false);
     setActiveTab('client');
     // Warm the cache for this client's Overview data in the background

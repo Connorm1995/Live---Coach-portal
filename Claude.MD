@@ -1,6 +1,21 @@
 
 # Coach Portal - Project Rules
 
+## Naming
+
+There are two separate applications in this repo. Use these names, and no others,
+in code, comments, docs, commit messages and conversation:
+
+- **Coach Portal** - the coach-facing dashboard (`backend/` + `frontend/`),
+  at dashboard.myfitcoach.ie.
+- **MyFitCoach Forms** - the client-facing forms application (`forms/`), at
+  forms.myfitcoach.ie. Serves the weekly check-in, the End of Month report and
+  onboarding. Connor's name for it as of 7 Aug 2026. Do NOT call it "the forms
+  service", "the forms app" or anything else.
+
+"MyFitCoach" on its own is the coaching business, and stays the brand shown to
+clients on the forms themselves.
+
 ## UI Rules
 
 - Never use em dashes anywhere in the UI. Use a regular hyphen (-) or reword the text instead. This applies to all components, labels, placeholders, and any other visible text throughout the site.
@@ -40,6 +55,6 @@ All API credentials are stored in `.env`. Do not duplicate them elsewhere.
 ## Trainerize API
 
 - Use the existing Trainerize auth pattern already in the codebase for all API calls.
-- Check trainerize/Webhook_api.md for exact endpoint shapes before building - do not guess field names.
+- Check docs/trainerize:Webhook_api.md for exact endpoint shapes before building - do not guess field names.
 - Trainerize API calls from the Client View tabs are read-only - no writes via the portal except through Coach's Corner messaging.
 - Fail gracefully on all Trainerize API calls - surface errors clearly, never crash the page.

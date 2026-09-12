@@ -726,6 +726,43 @@ All Trainerize data is now stored permanently in PostgreSQL. The data layer (`ba
 | `client_workouts` | Strength sessions with full detail JSON | client_id + trainerize_id |
 | `client_cardio` | Cardio sessions with duration/distance/HR | client_id + trainerize_id |
 | `backfill_progress` | Tracks backfill script resume state | client_id + data_type |
+| `client_calendar_coverage` | One row per day already fetched from `calendar/getList` | client_id + date |
+
+### Calendar coverage - which days have actually been fetched
+
+**Problem it solves.** Only completed sessions are stored, so an empty day in the
+database is ambiguous: it can mean "the client trained nothing that day" or "we
+never asked Trainerize about that day". `getCalendarData` used to resolve that
+ambiguity by asking whether the range held *any* sessions at all. If it did, and
+the fetch was recent, the whole range counted as cached.
+
+That produced silent, permanent data loss. Opening the Training tab fires the
+session calendar first, which asks for the last 3 weeks only. That call stored
+those days. Block Progress then asked for the whole training plan, saw sessions
+fetched seconds earlier, and skipped Trainerize entirely - so the part of the
+plan before the 3 week window was never fetched. Once the plan's end date passed
+the current Monday it was treated as history and never refetched, freezing the
+gap forever. Tom OCuinneagain's Phase 2 block showed 3 of his 8 sessions this
+way, and Phase 1 had lost 2 permanently.
+
+**The rule now.** `client_calendar_coverage` records every day the portal has
+actually fetched. A day needs a Trainerize call when:
+
+- it has no coverage row (never fetched), or
+- it falls in the current week or later, and its coverage row is older than 30 minutes.
+
+Days before the current Monday with a coverage row are never refetched, which
+keeps the original performance intent. When days are missing, only the span from
+the first to the last missing day is fetched, not the whole range.
+
+**Merging.** Scheduled sessions, bodystat and photo markers are not stored, so
+after a fetch the freshly returned non-completed items are folded back into the
+database-built response. Completed sessions always come from the database.
+
+**Known limit.** A session logged retrospectively onto a date already marked
+covered and already historical will not be picked up by a page load. The
+`dailyWorkout.completed` webhook still stores it, and the backfill script below
+recovers it if the webhook was missed.
 
 ### Fetch strategy
 
@@ -755,6 +792,23 @@ This means the database stays up to date in real time without waiting for the ne
 - Retry with exponential backoff: 3s, 6s, 12s delays on failure
 - Resume capability: tracks progress in `backfill_progress` table, skips completed work on re-run
 - Real-time progress logging per client per data type
+
+### Calendar gap repair script
+
+`backend/db/backfill-calendar-gaps.js` repairs holes left by the old coverage
+logic. It refetches `calendar/getList` month by month, stores completed
+sessions, marks every day covered, and pulls workout detail for any completed
+session missing it (Block Progress reads `detail_json`).
+
+```
+node backend/db/backfill-calendar-gaps.js --client=56
+node backend/db/backfill-calendar-gaps.js --all --dry-run
+```
+
+Defaults to the client's earliest training plan start date (12 months back if
+they have no plans) through today. `--from` and `--to` override the range.
+Run once per client after deploying the coverage change; the new fetch rule
+prevents fresh gaps forming, but it cannot heal days already marked historical.
 
 ### Two-layer cache architecture
 
@@ -2321,3 +2375,114 @@ When no honest comparison exists the result is `not_comparable` with a reason,
 never a fabricated verdict. Across the full history 78% of comparisons produce a
 verdict; the remaining 22% break down as sessions not logged, first session of a
 series, no weight logged, assistance not logged, and no weigh-in near the date.
+
+---
+
+## Client selection always lands on Overview (12 Sep 2026)
+
+**The bug:** clicking a client's name in Coach's Corner -> Clients left the
+content area blank, and the coach had to click Overview to see anything.
+
+**Why:** `ClientManager` asked `handleSelectClient` to open a tab called
+`calendar`. That tab was removed from `CLIENT_TABS` when the Calendar screen was
+folded into the Overview, so `clientTab` was set to a key that no branch in
+`App.js` renders. Nothing matched, so nothing was drawn.
+
+**The fix, in two parts:**
+
+- `ClientManager` now asks for `overview`.
+- `handleSelectClient` in `App.js` validates the requested tab against
+  `CLIENT_TABS` and falls back to `overview` when it does not recognise it.
+
+The second part is the one that matters going forward. A caller naming a tab
+that no longer exists is a rename away at any time, and the failure mode is
+silent - no error, no console warning, just an empty screen. Validating at the
+point of selection means the worst case is landing on the wrong tab rather than
+on no tab at all.
+
+This also makes selection consistent: picking a client from the Check-in Hub and
+picking one from Coach's Corner now both open the Overview, and switching
+clients while sat on Training resets to Overview instead of carrying the old tab
+across to someone else's data.
+
+## Dead code removed from the front end (12 Sep 2026)
+
+`OverviewTab.js`/`.css` (replaced by `ClientOverviewTab`) and
+`CalendarTab.js`/`.css` (orphaned by the same change) were moved out to
+`~/coach-portal-backup-claude/2026-09-12-cleanup/`, along with the
+`font-preview-*.html` and `checkin-form-preview.html` scratch pages, which had
+been sitting in `frontend/public/` and were therefore being built into
+`frontend/build/` and served by the live site.
+
+**The check that mattered, for next time.** Component CSS in this app is plain
+global CSS, not CSS modules, so a stylesheet can be styling a screen that lives
+in an entirely different file. Confirming that nothing imports the `.js` is not
+enough on its own. The method used here:
+
+1. List every class defined in the stylesheet being removed.
+2. Grep the remaining live components for each one, allowing for substrings.
+3. For every hit, check whether the class is also defined in a stylesheet that
+   is still imported.
+4. Treat substring hits as suspects, not matches - `score-block` appeared to be
+   live, but the live code uses `checkin-panel__score-blocks`, a different class
+   defined in `ClientOverviewTab.css`.
+
+Step 4 is where this nearly went wrong: 37 of the 100 classes in
+`OverviewTab.css` looked live at first pass, and all 37 turned out to be either
+duplicated elsewhere or substring false alarms.
+
+**The proof, which is worth repeating on any removal of this kind:** build the
+app before and after. Create React App names its output files after a hash of
+their own contents, so identical names mean identical output. Both builds
+produced `main.6856e8f6.js` and `main.169d6135.css`, which says the removed
+files were never reaching the browser in the first place.
+
+**Note on the calendar.** Only the unused front-end screen was removed. The
+`/api/calendar` route, its store logic and the coverage table are all still
+live and still used.
+
+**Left in place deliberately:** `GET /:id` in `routes/overview.js` lost its only
+caller when `OverviewTab` was replaced, but it was not removed, because nothing
+outside the app could be ruled out as a caller.
+
+## routes/overview.js trimmed to what the portal actually calls (12 Sep 2026)
+
+The file was 662 lines. 157 remain.
+
+`GET /:id` was the big aggregate endpoint behind the old `OverviewTab` screen.
+When that screen was replaced by `ClientOverviewTab`, the new screen moved to
+`/api/client-overview/*` and stopped calling it, but the endpoint and its 15
+helper functions stayed.
+
+**What made removal safe to decide, rather than guess.** The first pass left it
+alone because an endpoint could in principle be called by something outside the
+app. It cannot be: `isPublicPath` in `lib/auth.js` lists `/health`, `/login`,
+`/logout`, `/robots.txt` and `/webhooks/` as the only unauthenticated paths, so
+`/api/overview/*` is reachable only with a valid session cookie. The one holder
+of that cookie is the portal front end, and the front end now calls exactly
+three paths under `/api/overview`: `/focus`, `/settings` and
+`/trajectory-settings`. Trainerize reaches the app through `/webhooks/`, not
+here.
+
+Checking the auth boundary is what turned this from a judgement call into a
+fact, and it is the check worth repeating before removing any endpoint.
+
+**The helpers went with it.** All 15 (`trainerizePost`, `trainerizeGet`, the
+date helpers, `parseStepsData`, `parseSleepData`, `parseRestingHR`,
+`parseTrainingData`, `parseNutritionData`, `fetchWeightEntries`,
+`buildWeightComparison` and the rest) were used only by `GET /:id`. The five
+surviving endpoints need nothing but `express`, `pool` and `COACH_ID`, so the
+`trainerize` and `trainerize-store` imports went too. Leaving the helpers behind
+would have been worse than leaving the whole endpoint: 300 lines that look load
+bearing and are not.
+
+**Route order was not a factor.** `/:id` matches a single path segment, so it
+never shadowed `/:id/trajectory-settings`, and removing it changes no other
+route's matching.
+
+**Verified:** `GET /:id/trajectory-settings` returns 200; `PUT /:id/focus` and
+`PUT /:id/trajectory-settings` still return 400 from their own validation, which
+runs before any database call, so the routes are mounted and their guards are
+intact. The removed path now falls through to the front end's catch-all and
+serves `index.html` rather than erroring. The original 662 line file is kept at
+`~/coach-portal-backup-claude/2026-09-12-cleanup/repo/backend/routes/overview.js.ORIGINAL-662-lines`.
