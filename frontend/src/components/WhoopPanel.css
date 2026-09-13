@@ -328,3 +328,11 @@
   padding: 3px 8px;
   background: var(--color-off-white);
 }
+
+/* The older sleep chart counts time in bed, which runs 20-40 minutes higher
+   than time asleep. Saying which this is stops the two reading as a
+   contradiction. */
+.whoop__key--note {
+  font-style: italic;
+  opacity: .85;
+}

@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { trainerizePost: tzPost } = require('../lib/trainerize');
 const store = require('../lib/trainerize-store');
+const { nightDateFor } = require('../lib/sleep-night');
 
 const router = express.Router();
 const COACH_ID = 1;
@@ -181,16 +182,6 @@ async function fetchWeightEntries(tid, startDate, endDate) {
 function parseSleepData(response, allDates) {
   const TZ = 'Europe/Dublin';
 
-  function toLocalHour(date) {
-    const parts = new Intl.DateTimeFormat('en-IE', {
-      timeZone: TZ,
-      hour: 'numeric',
-      hour12: false,
-    }).formatToParts(date);
-    const hourPart = parts.find(p => p.type === 'hour');
-    return parseInt(hourPart.value, 10);
-  }
-
   function toLocalDateStr(date) {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: TZ,
@@ -212,15 +203,10 @@ function parseSleepData(response, allDates) {
       const durationMin = (end - start) / 60000;
       if (durationMin <= 0) continue;
 
-      const localHour = toLocalHour(start);
-      let nightDate;
-      if (localHour < 12) {
-        const prev = new Date(start);
-        prev.setUTCDate(prev.getUTCDate() - 1);
-        nightDate = toLocalDateStr(prev);
-      } else {
-        nightDate = toLocalDateStr(start);
-      }
+      // seg.tz is the client's own UTC offset for that night when the source
+      // knows it (Whoop does). Without it this falls back to Dublin, which is
+      // what every Trainerize segment gets and what this always did.
+      const nightDate = nightDateFor(start, seg.tz);
 
       if (!nights[nightDate]) {
         nights[nightDate] = { totalMin: 0 };

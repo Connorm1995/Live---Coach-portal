@@ -10,6 +10,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { trainerizePost: tzPost } = require('../lib/trainerize');
 const store = require('../lib/trainerize-store');
+const { nightDateFor } = require('../lib/sleep-night');
 const whoopStore = require('../lib/whoop-store');
 const { parseScores, parseFormAnswers, SCORE_CATEGORIES } = require('../lib/overview-parsers');
 
@@ -166,14 +167,6 @@ function parseSleepData(response, dateRangeArr) {
     return `${p.year}-${p.month}-${p.day}`;
   }
 
-  function toLocalHour(date) {
-    const parts = new Intl.DateTimeFormat('en-IE', {
-      timeZone: TZ, hour: 'numeric', hour12: false,
-    }).formatToParts(date);
-    const hourPart = parts.find(p => p.type === 'hour');
-    return parseInt(hourPart.value, 10);
-  }
-
   const nights = {};
   if (response?.sleep && Array.isArray(response.sleep)) {
     for (const seg of response.sleep) {
@@ -183,15 +176,10 @@ function parseSleepData(response, dateRangeArr) {
       const durationMin = (end - start) / 60000;
       if (durationMin <= 0) continue;
 
-      const localHour = toLocalHour(start);
-      let nightDate;
-      if (localHour < 12) {
-        const prev = new Date(start);
-        prev.setUTCDate(prev.getUTCDate() - 1);
-        nightDate = toLocalDateStr(prev);
-      } else {
-        nightDate = toLocalDateStr(start);
-      }
+      // seg.tz is the client's own UTC offset for that night when the source
+      // knows it (Whoop does). Without it this falls back to Dublin, which is
+      // what every Trainerize segment gets and what this always did.
+      const nightDate = nightDateFor(start, seg.tz);
 
       if (!nights[nightDate]) {
         nights[nightDate] = { totalMin: 0, earliestStart: start, latestEnd: end };
@@ -407,14 +395,6 @@ function formatDuration(seconds) {
 function parseCalendarSleepData(response, allDates) {
   const TZ = 'Europe/Dublin';
 
-  function toLocalHour(date) {
-    const parts = new Intl.DateTimeFormat('en-IE', {
-      timeZone: TZ, hour: 'numeric', hour12: false,
-    }).formatToParts(date);
-    const hourPart = parts.find(p => p.type === 'hour');
-    return parseInt(hourPart.value, 10);
-  }
-
   function toLocalDateStr(date) {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -433,15 +413,10 @@ function parseCalendarSleepData(response, allDates) {
       const durationMin = (end - start) / 60000;
       if (durationMin <= 0) continue;
 
-      const localHour = toLocalHour(start);
-      let nightDate;
-      if (localHour < 12) {
-        const prev = new Date(start);
-        prev.setUTCDate(prev.getUTCDate() - 1);
-        nightDate = toLocalDateStr(prev);
-      } else {
-        nightDate = toLocalDateStr(start);
-      }
+      // seg.tz is the client's own UTC offset for that night when the source
+      // knows it (Whoop does). Without it this falls back to Dublin, which is
+      // what every Trainerize segment gets and what this always did.
+      const nightDate = nightDateFor(start, seg.tz);
 
       if (!nights[nightDate]) nights[nightDate] = { totalMin: 0 };
       nights[nightDate].totalMin += durationMin;

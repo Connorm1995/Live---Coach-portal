@@ -56,6 +56,20 @@ function fmtDayLong(dateStr) {
   });
 }
 
+/** A time of day in the client's own offset, which is the only place a
+ *  bedtime means anything. */
+function clockIn(iso, tz) {
+  if (!iso) return null;
+  const m = /^([+-])(\d{2}):?(\d{2})$/.exec(String(tz || '').trim());
+  const mins = m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : null;
+  const d = new Date(iso);
+  if (mins == null) {
+    return d.toLocaleTimeString('en-IE', { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  const shifted = new Date(d.getTime() + mins * 60000);
+  return `${String(shifted.getUTCHours()).padStart(2, '0')}:${String(shifted.getUTCMinutes()).padStart(2, '0')}`;
+}
+
 function hoursLabel(h) {
   if (h == null) return '-';
   const whole = Math.floor(h);
@@ -230,6 +244,8 @@ function DayInspector({ day, hovering }) {
     { k: 'HRV', v: day.hrv != null ? `${Math.round(day.hrv)} ms` : '-' },
     { k: 'Resting HR', v: day.restingHR != null ? `${day.restingHR} bpm` : '-' },
     { k: 'Strain', v: day.strain != null ? day.strain.toFixed(1) : '-' },
+    { k: 'Bed', v: clockIn(day.sleepStart, day.timezoneOffset) || '-' },
+    { k: 'Woke', v: clockIn(day.sleepEnd, day.timezoneOffset) || '-' },
     { k: 'Slept', v: hoursLabel(day.sleepHours) },
     { k: 'Needed', v: hoursLabel(day.sleepNeededHours) },
     { k: 'Deep', v: hoursLabel(day.deepHours) },
@@ -495,6 +511,7 @@ function WhoopPanel({ clientId, clientName, lastSyncAt }) {
             <span className="whoop__key"><i className="whoop__key-dot whoop__key-dot--rem" />REM</span>
             <span className="whoop__key"><i className="whoop__key-dot whoop__key-dot--light" />Light</span>
             <span className="whoop__key"><i className="whoop__key-dash" />Needed</span>
+            <span className="whoop__key whoop__key--note">Time asleep, not time in bed</span>
           </>}
           height={190}
         >

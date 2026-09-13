@@ -2690,3 +2690,41 @@ timezone is a quiet way to misread every date on it.
 bites for a client abroad whose bedtime lands near the boundary, and it is
 untouched here because changing it would move existing dates for every client at
 once. Worth fixing deliberately rather than as a side effect.
+
+### One rule for which night a sleep belongs to
+
+The Dublin-noon rule lived in three byte-identical copies across
+`routes/client-overview.js` (twice) and `routes/calendar.js`. It now lives once,
+in `lib/sleep-night.js`, and takes the client's own UTC offset when the source
+supplies one.
+
+This was not tidying. `lib/whoop-store.js` already bucketed by the client's
+offset, but those route parsers re-bucketed the raw segments by Dublin noon on
+the way to the screen. From 25 Oct 2026 the Whoop panel and the sleep tile
+**on the same page** would have disagreed about which day a night belonged to,
+which is worse than either being consistently wrong. Whoop segments now carry
+`tz`; Trainerize segments carry none and fall back to Dublin, unchanged.
+
+### Two sleep numbers, both correct
+
+The sleep tile and the Whoop panel report different hours for the same night,
+and neither is wrong:
+
+- the **tile** measures time in bed, end minus start;
+- the **panel** measures time asleep, the sleep stages summed, which is what
+  Whoop's own app calls hours of sleep.
+
+For Cian that is about 20 to 40 minutes apart (7h43m in bed, 7h19m asleep on
+12 Sep - the difference is his awake time exactly). The panel says "Time asleep,
+not time in bed" on the lane so the two do not read as a contradiction. The
+tile is otherwise redundant for a Whoop client now that the panel carries bed
+and wake times, and is a candidate for removal once Connor decides.
+
+### Verification, 13 Sep 2026
+
+Checked against the live Whoop API rather than assumed: 19 days of Cian's data,
+**259 fields matched, 0 mismatched** across recovery, HRV, resting heart rate,
+strain, calories, average and max heart rate, sleep hours, deep, REM, sleep
+performance, disturbances, timezone offset and night date. The seam was checked
+separately: sleep, resting HR and calories come from Whoop for him, `step`
+correctly falls through to Trainerize, and a control client is untouched.

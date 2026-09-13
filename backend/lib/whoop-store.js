@@ -486,7 +486,7 @@ async function buildSleepResponse(clientDbId, startDate, endDate) {
   // Widened by a day at each end because the night of the 1st is stored against
   // the 2nd. Without this the first and last nights of a range go missing.
   const { rows } = await pool.query(
-    `SELECT sleep_start, sleep_end FROM client_whoop_daily
+    `SELECT sleep_start, sleep_end, timezone_offset FROM client_whoop_daily
      WHERE client_id = $1 AND coach_id = $2
        AND sleep_start IS NOT NULL AND sleep_end IS NOT NULL
        AND sleep_night_date >= $3::date - 1
@@ -500,6 +500,11 @@ async function buildSleepResponse(clientDbId, startDate, endDate) {
       type: 'asleep',
       startTime: new Date(r.sleep_start).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ''),
       endTime: new Date(r.sleep_end).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ''),
+      // The offset the client was actually in. lib/sleep-night.js uses it to
+      // decide which night this belongs to; a Trainerize segment has none and
+      // falls back to Dublin. Without this the Whoop panel and the sleep tile
+      // would disagree about the date of the same night.
+      tz: r.timezone_offset || null,
     })),
   };
 }
@@ -550,7 +555,8 @@ async function getDaily(clientDbId, startDate, endDate) {
             sleep_seconds, sleep_needed_seconds, sleep_performance,
             sleep_consistency, sleep_efficiency, rem_seconds, deep_seconds,
             light_seconds, awake_seconds, sleep_cycles, disturbances,
-            respiratory_rate, nap_seconds, timezone_offset
+            respiratory_rate, nap_seconds, timezone_offset,
+            sleep_start, sleep_end
      FROM client_whoop_daily
      WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
      ORDER BY date`,
@@ -586,6 +592,10 @@ async function getDaily(clientDbId, startDate, endDate) {
     respiratoryRate: numberOrNull(r.respiratory_rate),
     napHours: r.nap_seconds != null ? +(r.nap_seconds / 3600).toFixed(2) : null,
     timezoneOffset: r.timezone_offset || null,
+    // Raw instants. The UI renders them in the CLIENT's offset, because a
+    // bedtime is only meaningful where the person actually went to bed.
+    sleepStart: r.sleep_start ? new Date(r.sleep_start).toISOString() : null,
+    sleepEnd: r.sleep_end ? new Date(r.sleep_end).toISOString() : null,
   }));
 }
 
