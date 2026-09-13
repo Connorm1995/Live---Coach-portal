@@ -694,6 +694,14 @@ async function migrate() {
         respiratory_rate NUMERIC(5,2),
         nap_seconds INTEGER,
 
+        -- The client's OWN UTC offset for that night, as Whoop reports it
+        -- (e.g. "+10:00"). Sleep is a local-time idea: which night it belongs
+        -- to has to be decided where the client actually is, not where the
+        -- coach is. Cian is in Australia, and bucketing his nights by Dublin
+        -- noon would have started shifting them a day on 25 Oct 2026 when
+        -- Ireland leaves summer time.
+        timezone_offset VARCHAR,
+
         cycle_id BIGINT,
         sleep_uuid VARCHAR,
         fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -703,6 +711,9 @@ async function migrate() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_whoop_daily_client_date
       ON client_whoop_daily(client_id, date);
+    `);
+    await client.query(`
+      ALTER TABLE client_whoop_daily ADD COLUMN IF NOT EXISTS timezone_offset VARCHAR
     `);
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_whoop_daily_client_night

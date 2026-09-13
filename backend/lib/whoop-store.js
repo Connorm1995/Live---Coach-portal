@@ -60,20 +60,61 @@ function dublinHour(date) {
 }
 
 /**
- * The night a sleep belongs to.
- *
- * Deliberately identical to parseSleepData in routes/client-overview.js: a
- * sleep starting before noon is credited to the previous day, so 1am Tuesday is
- * "Monday night". If that rule ever changes there, it has to change here too,
- * or a Whoop client's calendar drifts a day away from everyone else's.
+ * Parse Whoop's timezone offset ("+10:00", "-05:00") into minutes.
+ * Returns null for anything unrecognised, which falls the caller back to
+ * Dublin.
  */
-function sleepNightDate(start) {
-  if (dublinHour(start) < 12) {
-    const prev = new Date(start);
-    prev.setUTCDate(prev.getUTCDate() - 1);
-    return dublinDate(prev);
+function offsetMinutes(offset) {
+  const m = /^([+-])(\d{2}):?(\d{2})$/.exec(String(offset || '').trim());
+  if (!m) return null;
+  return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+/** A date shifted into a fixed UTC offset, so UTC getters read as local time. */
+function shifted(date, mins) {
+  return new Date(date.getTime() + mins * 60000);
+}
+
+/**
+ * The night a sleep belongs to, decided WHERE THE CLIENT IS.
+ *
+ * The rule itself matches parseSleepData in routes/client-overview.js: a sleep
+ * starting before local noon is credited to the previous day, so 1am Tuesday is
+ * "Monday night". What differs is whose noon.
+ *
+ * parseSleepData uses Dublin's, which is right for a coach in Ireland reading a
+ * client in Ireland. It is wrong the moment a client is not. Cian is in
+ * Australia and goes to bed around 22:00 his time, which reads as 13:00 in
+ * Dublin - only an hour clear of the boundary. On 25 Oct 2026, when Ireland
+ * leaves summer time, the same bedtime would have read as 11:00 Dublin, tripped
+ * the "before noon" rule, and silently shifted every one of his nights a day
+ * out of line with the recovery it produced.
+ *
+ * So the offset Whoop reports for that night wins, and Dublin is only the
+ * fallback for a record that arrives without one.
+ */
+function sleepNightDate(start, offset) {
+  const mins = offsetMinutes(offset);
+
+  if (mins == null) {
+    if (dublinHour(start) < 12) {
+      const prev = new Date(start);
+      prev.setUTCDate(prev.getUTCDate() - 1);
+      return dublinDate(prev);
+    }
+    return dublinDate(start);
   }
-  return dublinDate(start);
+
+  const local = shifted(start, mins);
+  if (local.getUTCHours() < 12) local.setUTCDate(local.getUTCDate() - 1);
+  return local.toISOString().split('T')[0];
+}
+
+/** The client's own calendar date for an instant. */
+function localDate(date, offset) {
+  const mins = offsetMinutes(offset);
+  if (mins == null) return dublinDate(date);
+  return shifted(date, mins).toISOString().split('T')[0];
 }
 
 /** Whoop wants ISO 8601; the portal passes YYYY-MM-DD around. */
@@ -152,7 +193,9 @@ async function sync(clientDbId, startDate, endDate) {
 
     for (const cycle of cycles) {
       if (!cycle?.start) continue;
-      const date = dublinDate(new Date(cycle.start));
+      // Whoop already starts a cycle at the client's local wake time, so its
+      // own offset is the only correct way to name that day.
+      const date = localDate(new Date(cycle.start), cycle.timezone_offset);
       dayByCycle.set(cycle.id, date);
 
       const day = dayFor(date);
@@ -191,7 +234,7 @@ async function sync(clientDbId, startDate, endDate) {
       if (!sleep?.start || !sleep?.end) continue;
       const startedAt = new Date(sleep.start);
       const endedAt = new Date(sleep.end);
-      const date = dublinDate(endedAt);
+      const date = localDate(endedAt, sleep.timezone_offset);
       const day = dayFor(date);
 
       const score = sleep.score_state === 'SCORED' ? sleep.score : null;
@@ -207,7 +250,8 @@ async function sync(clientDbId, startDate, endDate) {
         continue;
       }
 
-      day.sleep_night_date = sleepNightDate(startedAt);
+      day.sleep_night_date = sleepNightDate(startedAt, sleep.timezone_offset);
+      day.timezone_offset = sleep.timezone_offset || null;
       day.sleep_uuid  = sleep.id || null;
       day.sleep_start = startedAt.toISOString();
       day.sleep_end   = endedAt.toISOString();
@@ -289,7 +333,7 @@ async function upsertDay(clientDbId, day) {
        sleep_performance, sleep_consistency, sleep_efficiency,
        rem_seconds, deep_seconds, light_seconds, awake_seconds,
        sleep_cycles, disturbances, respiratory_rate, nap_seconds,
-       cycle_id, sleep_uuid, fetched_at
+       cycle_id, sleep_uuid, timezone_offset, fetched_at
      ) VALUES (
        $1, $2, $3,
        $4, $5, $6, $7, $8, $9,
@@ -298,7 +342,7 @@ async function upsertDay(clientDbId, day) {
        $19, $20, $21,
        $22, $23, $24, $25,
        $26, $27, $28, $29,
-       $30, $31, now()
+       $30, $31, $32, now()
      )
      ON CONFLICT (coach_id, client_id, date) DO UPDATE SET
        -- COALESCE keeps an earlier value when this pass did not carry one.
@@ -332,6 +376,7 @@ async function upsertDay(clientDbId, day) {
        nap_seconds          = COALESCE(EXCLUDED.nap_seconds, client_whoop_daily.nap_seconds),
        cycle_id             = COALESCE(EXCLUDED.cycle_id, client_whoop_daily.cycle_id),
        sleep_uuid           = COALESCE(EXCLUDED.sleep_uuid, client_whoop_daily.sleep_uuid),
+       timezone_offset      = COALESCE(EXCLUDED.timezone_offset, client_whoop_daily.timezone_offset),
        fetched_at           = now()`,
     [
       COACH_ID, clientDbId, day.date,
@@ -344,7 +389,7 @@ async function upsertDay(clientDbId, day) {
       day.rem_seconds ?? null, day.deep_seconds ?? null, day.light_seconds ?? null,
       day.awake_seconds ?? null, day.sleep_cycles ?? null, day.disturbances ?? null,
       day.respiratory_rate ?? null, day.nap_seconds ?? null,
-      day.cycle_id ?? null, day.sleep_uuid ?? null,
+      day.cycle_id ?? null, day.sleep_uuid ?? null, day.timezone_offset ?? null,
     ]
   );
 }
@@ -505,7 +550,7 @@ async function getDaily(clientDbId, startDate, endDate) {
             sleep_seconds, sleep_needed_seconds, sleep_performance,
             sleep_consistency, sleep_efficiency, rem_seconds, deep_seconds,
             light_seconds, awake_seconds, sleep_cycles, disturbances,
-            respiratory_rate, nap_seconds
+            respiratory_rate, nap_seconds, timezone_offset
      FROM client_whoop_daily
      WHERE client_id = $1 AND coach_id = $2 AND date >= $3 AND date <= $4
      ORDER BY date`,
@@ -540,6 +585,7 @@ async function getDaily(clientDbId, startDate, endDate) {
     disturbances: r.disturbances ?? null,
     respiratoryRate: numberOrNull(r.respiratory_rate),
     napHours: r.nap_seconds != null ? +(r.nap_seconds / 3600).toFixed(2) : null,
+    timezoneOffset: r.timezone_offset || null,
   }));
 }
 
@@ -585,5 +631,5 @@ module.exports = {
   getDaily,
   getStatus,
   dublinDate,
-  _test: { sleepNightDate, kjToKcal },
+  _test: { sleepNightDate, kjToKcal, offsetMinutes, localDate },
 };

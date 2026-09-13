@@ -1,0 +1,330 @@
+/* === Whoop panel =========================================================
+   Four charts on one shared time axis, read during a check-in.
+
+   The colours below are the only Whoop-specific additions to the palette.
+   The recovery band colours are deliberately the existing status variables,
+   because they must match what the client sees in the Whoop app - a coach and
+   client looking at "amber" have to mean the same thing.
+   ========================================================================= */
+
+:root {
+  --whoop-deep:     #0d5c5c;  /* deepest teal: deep sleep, the scarcest stage */
+  --whoop-rem:      #23b8b8;  /* house teal */
+  --whoop-light:    #a7dedd;  /* palest teal: light sleep, the bulk of a night */
+  --whoop-recovery: #111827;
+  --whoop-hrv:      #23b8b8;
+  --whoop-rhr:      #f59e0b;
+  --whoop-strain:   #7c6cf5;
+}
+
+.whoop {
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.whoop--loading,
+.whoop--error,
+.whoop__empty {
+  font-size: 14px;
+  color: var(--color-slate);
+  padding: var(--space-4);
+  margin: 0;
+}
+
+.whoop--error { color: var(--color-red); }
+
+/* --- header --- */
+
+.whoop__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.whoop__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-black);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.whoop__synced {
+  font-size: 11.5px;
+  color: var(--color-slate);
+  margin-left: auto;
+}
+
+.whoop__range {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.whoop__range-btn {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 11px;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-white);
+  color: var(--color-slate);
+  cursor: pointer;
+}
+
+.whoop__range-btn:last-child { border-right: none; }
+
+.whoop__range-btn:hover { background: var(--color-off-white); }
+
+.whoop__range-btn--active,
+.whoop__range-btn--active:hover {
+  background: var(--color-teal);
+  color: var(--color-white);
+  font-weight: 600;
+}
+
+.whoop__calibrating {
+  margin: 0 0 var(--space-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-amber);
+}
+
+/* --- headline readouts --- */
+
+.whoop__readouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 1px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+}
+
+.whoop__readout {
+  background: var(--color-white);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.whoop__readout-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-slate);
+}
+
+.whoop__readout-value {
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-black);
+  font-variant-numeric: tabular-nums;
+}
+
+.whoop__readout-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-slate);
+  margin-left: 2px;
+}
+
+.whoop__readout-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 24px;
+}
+
+.whoop__delta {
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.whoop__delta--good    { color: var(--color-green); }
+.whoop__delta--bad     { color: var(--color-red); }
+.whoop__delta--neutral { color: var(--color-slate); font-weight: 500; }
+
+.whoop__spark { flex: 0 0 auto; display: block; }
+
+.whoop__readout-hint {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-slate);
+  margin-top: 1px;
+}
+
+/* --- lanes --- */
+
+.whoop__lanes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.whoop__lane { min-width: 0; }
+
+.whoop__lane-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.whoop__lane-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-black);
+}
+
+.whoop__lane-note {
+  font-size: 11.5px;
+  color: var(--color-slate);
+  line-height: 1.4;
+}
+
+.whoop__footnote {
+  margin: var(--space-3) 0 0;
+  font-size: 11.5px;
+  color: var(--color-slate);
+}
+
+@media (max-width: 900px) {
+  .whoop__synced { margin-left: 0; flex: 1 1 100%; }
+}
+
+/* --- day inspector --- */
+
+.whoop__inspector {
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-off-white);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.whoop__inspector-date {
+  margin: 0 0 var(--space-2);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.whoop__inspector-date strong {
+  font-family: var(--font-display);
+  color: var(--color-black);
+  font-weight: 700;
+}
+
+.whoop__inspector-when {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--color-slate);
+}
+
+.whoop__inspector-cells {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+
+.whoop__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.whoop__cell dt {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-slate);
+  white-space: nowrap;
+}
+
+.whoop__cell dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-black);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Recovery carries Whoop's band colour so the day's state reads without
+   having to compare the number against remembered thresholds. */
+.whoop__cell--high dd { color: var(--color-green); }
+.whoop__cell--mid  dd { color: var(--color-amber); }
+.whoop__cell--low  dd { color: var(--color-red); }
+.whoop__cell--short dd { color: var(--color-red); }
+
+/* --- sleep stage key --- */
+
+.whoop__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: var(--space-3);
+  font-size: 11.5px;
+  color: var(--color-slate);
+}
+
+.whoop__key-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.whoop__key-dot--deep  { background: var(--whoop-deep); }
+.whoop__key-dot--rem   { background: var(--whoop-rem); }
+.whoop__key-dot--light { background: var(--whoop-light); }
+
+.whoop__key-dash {
+  width: 14px;
+  height: 0;
+  border-top: 1.5px dashed var(--color-slate);
+  display: inline-block;
+}
+
+/* Flags that these are the CLIENT's days, not Dublin days. The portal labels
+   everything else Dublin time, so an unlabelled foreign-timezone chart is a
+   quiet way to misread every date on it. */
+.whoop__tz {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-amber);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  background: var(--color-off-white);
+}

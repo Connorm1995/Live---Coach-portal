@@ -809,7 +809,14 @@ router.get('/:id/health', async (req, res) => {
         return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
       };
 
+      const conn = await pool.query(
+        `SELECT last_sync_at FROM client_whoop_connections
+         WHERE client_id = $1 AND coach_id = $2 AND revoked_at IS NULL`,
+        [id, COACH_ID]
+      );
+
       whoopBlock = {
+        lastSyncAt: conn.rows[0]?.last_sync_at || null,
         days,
         sleepDetail,
         averages: {

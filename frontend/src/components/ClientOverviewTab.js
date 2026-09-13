@@ -9,6 +9,7 @@ import {
 import { PHASE_LABELS, buildTrajectoryChart } from './shared/trajectory';
 import CheckinMode from './CheckinMode';
 import './ClientOverviewTab.css';
+import WhoopPanel from './WhoopPanel';
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
 
@@ -791,101 +792,9 @@ function StepsGraph({ data, target, average }) {
 // ---------------------------------------------------------------------------
 // Whoop
 // ---------------------------------------------------------------------------
-// Only rendered for a client whose health data comes from Whoop. A Trainerize
-// client gets `whoop: null` from the API and this whole section stays hidden,
-// so nothing about the existing Overview changes for anyone else.
-
-function WhoopStrip({ whoop }) {
-  if (!whoop) return null;
-
-  const { averages, days } = whoop;
-  const latest = [...(days || [])].reverse().find(d => d.recoveryScore != null) || null;
-
-  // Whoop's own bands. Shown as colour as well as number so the state reads at
-  // a glance rather than having to be worked out.
-  const band = (score) => {
-    if (score == null) return 'none';
-    if (score >= 67) return 'high';
-    if (score >= 34) return 'mid';
-    return 'low';
-  };
-
-  const tiles = [
-    {
-      key: 'recovery',
-      label: 'Recovery',
-      value: latest?.recoveryScore != null ? Math.round(latest.recoveryScore) : null,
-      suffix: '%',
-      avg: averages?.recovery,
-      avgSuffix: '%',
-      band: band(latest?.recoveryScore),
-    },
-    {
-      key: 'hrv',
-      label: 'HRV',
-      value: latest?.hrv != null ? Math.round(latest.hrv) : null,
-      suffix: 'ms',
-      avg: averages?.hrv,
-      avgSuffix: 'ms',
-    },
-    {
-      key: 'strain',
-      label: 'Day strain',
-      value: latest?.strain != null ? latest.strain.toFixed(1) : null,
-      suffix: '',
-      avg: averages?.strain,
-      avgSuffix: '',
-    },
-    {
-      key: 'calories',
-      label: 'Calories out',
-      value: latest?.calories != null ? latest.calories.toLocaleString() : null,
-      suffix: '',
-      avg: averages?.calories != null ? Math.round(averages.calories) : null,
-      avgSuffix: '',
-    },
-  ];
-
-  const calibrating = (days || []).some(d => d.calibrating);
-
-  return (
-    <div className="client-overview__whoop">
-      <div className="client-overview__whoop-head">
-        <h3 className="client-overview__whoop-title">Whoop</h3>
-        <span className="client-overview__whoop-note">
-          Last 10 days. Steps still come from Trainerize - Whoop does not count them.
-        </span>
-      </div>
-
-      {calibrating && (
-        <p className="client-overview__whoop-calibrating">
-          Some days are missing because Whoop was still calibrating the strap and its
-          scores for those days are not meaningful.
-        </p>
-      )}
-
-      <div className="client-overview__whoop-tiles">
-        {tiles.map(t => (
-          <div
-            key={t.key}
-            className={`client-overview__whoop-tile client-overview__whoop-tile--${t.band || 'plain'}`}
-          >
-            <span className="client-overview__whoop-tile-label">{t.label}</span>
-            <span className="client-overview__whoop-tile-value">
-              {t.value != null ? t.value : '-'}
-              {t.value != null && t.suffix ? (
-                <span className="client-overview__whoop-tile-suffix">{t.suffix}</span>
-              ) : null}
-            </span>
-            <span className="client-overview__whoop-tile-avg">
-              {t.avg != null ? `${t.avg}${t.avgSuffix} average` : 'No average yet'}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+// The charts live in WhoopPanel; this is only the coach's connect control.
+// Both are rendered solely for a client whose health data comes from Whoop, so
+// nothing about the existing Overview changes for anyone else.
 
 /**
  * The coach's Whoop controls: generate the link, see the state, disconnect.
@@ -1760,7 +1669,13 @@ function ClientOverviewTab({ clientId, client, presentOpen, onPresentClose }) {
       <div className="client-overview__charts">
         {/* Whoop: only renders when this client's health data comes from Whoop */}
         <WhoopConnect clientId={clientId} clientName={client?.name} />
-        <WhoopStrip whoop={healthData?.whoop} />
+        {healthData?.whoop && (
+          <WhoopPanel
+            clientId={clientId}
+            clientName={client?.name}
+            lastSyncAt={healthData.whoop.lastSyncAt}
+          />
+        )}
 
         {/* Row 1: Steps + Sleep side by side */}
         <div className="client-overview__chart-row">

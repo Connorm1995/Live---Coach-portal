@@ -2622,3 +2622,71 @@ numbers on it.
   avoids an approval queue reported to be running into months.
 - `user_calibrating` marks the first days on a new strap. Those scores are real
   numbers that mean nothing, so they are stored but withheld from the charts.
+
+---
+
+## Whoop panel, and a client who is not in Ireland (13 Sep 2026)
+
+### The panel
+
+Four charts on one shared time axis, not four cards. Sleep (stacked deep / REM /
+light with a dashed sleep-need line), recovery, HRV with resting HR, and day
+strain. Every lane shares a Recharts `syncId`, so hovering any of them draws one
+cursor across all four.
+
+The alignment is the design. Recovery falling matters far less than recovery
+falling in the same week sleep collapsed and strain stayed high, and that is
+only visible when the days line up vertically. The first version of this was
+four tiles showing a value and a 10-day average; it answered "what is it now"
+and hid every trend in the data.
+
+Three decisions worth keeping:
+
+- **Strain bars are coloured by that morning's recovery.** Cian's strain barely
+  varies (14 to 19 most days), so a uniform bar chart said nothing. Coloured by
+  recovery it answers the question the lane is actually for: was he pushing hard
+  on days his body had not recovered?
+- **One day inspector, not a tooltip.** Recharts renders a tooltip per chart, so
+  four synced lanes produced four stacked copies. Beyond that, a tooltip that
+  follows the pointer is wrong for scanning across days - the numbers should
+  hold still while the days change. The lanes draw only the cursor; a fixed
+  strip does the reading, defaulting to the most recent day that has a recovery
+  score. Defaulting to the last row greeted the coach with a column of dashes,
+  because today's row exists from the moment the client wakes but has no strain
+  or recovery yet.
+- **Gaps stay gaps.** `connectNulls={false}` everywhere, including the
+  sparklines. A week the client did not wear the strap must not be drawn as a
+  smooth line.
+
+`isAnimationActive={false}` on every bar and line is not cosmetic: with the
+hover handlers re-rendering the chart, animated bars got stuck at zero height
+and a full night's sleep drew as a sliver.
+
+### Sleep belongs to the client's day, not the coach's
+
+The portal's house rule is Europe/Dublin everywhere, and that rule is right for
+scheduling. It is wrong for sleep.
+
+Cian is in Australia. He goes to bed around 22:00 his time, which reads as 13:00
+in Dublin - about an hour clear of the noon boundary that `parseSleepData` uses
+to decide which night a sleep belongs to. On **25 October 2026**, when Ireland
+leaves summer time while Australia is on AEDT, the same bedtime would have read
+as 11:00 Dublin, tripped the "before noon means the previous night" rule, and
+silently shifted every one of his nights a day out of line with the recovery it
+produced. Nothing would have errored.
+
+So `client_whoop_daily.timezone_offset` stores the offset Whoop reports for that
+night, and `sleepNightDate` uses it. Dublin remains the fallback for a record
+that arrives without one. His backfill came back 158 days at `+10:00` and 14 at
+`+02:00`, which is a trip to Europe - travel the offset handles on its own and a
+fixed timezone never could.
+
+The panel says so on screen when the client's offset differs from Dublin's
+("Days are in Cian's local time"), because an unlabelled chart in a foreign
+timezone is a quiet way to misread every date on it.
+
+**The same latent bug still exists on the Trainerize path.** `parseSleepData` in
+`routes/client-overview.js` buckets by Dublin noon for every client. It only
+bites for a client abroad whose bedtime lands near the boundary, and it is
+untouched here because changing it would move existing dates for every client at
+once. Worth fixing deliberately rather than as a side effect.
