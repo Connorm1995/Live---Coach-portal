@@ -2269,6 +2269,13 @@ curl --request POST \
 
 Schedule a workout
 
+> **Correction (verified against the live API, 14 Sep 2026):** each `dailyWorkouts[]` item must
+> also carry its own `userID` (same value as the top-level one). Without it every item fails
+> `404 User not found`, whatever the top-level `userID` is. An empty `dailyWorkouts: []`
+> returns 200 even for a user that does not exist, so it proves nothing. Send
+> `dailyWorkouts[].workoutID` (the training plan workout def id) as well: the calendar entry is
+> then linked to the plan workout exactly as scheduling it in the app does. See docs/logic.md.
+
 ```bash
 curl --request POST \
      --url https://api.trainerize.com/v03/dailyWorkout/set \

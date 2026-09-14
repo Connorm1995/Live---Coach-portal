@@ -35,31 +35,22 @@
  * duplicate library entry and orphan the history.
  *
  * TWO API SHAPES, deliberately not shared:
- *   /workoutDef/add   builds the workout inside the training plan. WORKS.
+ *   /workoutDef/add   builds the workout inside the training plan.
  *   /dailyWorkout/set puts a copy on a calendar date (status 'scheduled').
- *                     DOES NOT WORK on this token - see below.
  * The docs disagree on casing between them, so each is written to its own
  * documented shape rather than one shared builder.
  *
- * THE CALENDAR HALF IS BLOCKED. /dailyWorkout/set returns
- * `404: User not found` for userID 5346208, every time, while /calendar/getList,
- * /dailyMessage/add and /exercise/get all accept that same id happily. Tested
- * 13 Sep 2026 against: userID vs userid casing, id as string, with and without
- * unit fields, normal vs freeStyle style, and with an empty exercise array.
- * Same 404 on all of them, so it is the user the endpoint rejects, not the
- * payload. Nothing else in the documented API places a workout on a specific
- * client calendar date: /program/* covers program templates, and
- * /trainingPlan/* has no scheduling call.
- *
- * So the three workouts exist inside the block and are correct, but placing
- * them on Mon/Wed/Fri has to be done in the Trainerize app for now. The
- * scheduling code below is written to the documented shape and left in place:
- * if the endpoint is ever enabled on this token, re-running this picks up
- * where it stopped, because it skips any date that already holds a workout.
+ * THE CALENDAR (fixed 14 Sep 2026). On 13 Sep every /dailyWorkout/set call
+ * returned `404: User not found`. The cause: each dailyWorkouts[] item needs its
+ * OWN `userID`, which the docs never show. The top-level one alone is not
+ * enough. Items are also sent with `workoutID` (the plan def id), which links
+ * the calendar entry to the plan workout the same way scheduling in the app
+ * does. Day 1 on 21 Sep was placed by the one-off test that proved this; this
+ * script skips that date and fills the rest.
  *
  * Dry run is the default. Nothing is written without --commit.
  * Idempotent: refuses to add defs if the plan already has any, and skips any
- * calendar date that already holds a scheduled workout.
+ * calendar date that already holds a workout.
  *
  * Usage:
  *   node backend/db/build-connor-tester1-program.js
@@ -156,34 +147,31 @@ function planWorkoutPayload(day) {
   };
 }
 
-/** /dailyWorkout/set - note capitalised `superSetID` here, per the docs. */
-function dailyWorkoutPayload(date, day) {
+/**
+ * /dailyWorkout/set - capitalised `superSetID` here, per the docs. Built from the
+ * def as Trainerize stored it. `userID` inside the item is required (undocumented).
+ */
+function dailyWorkoutPayload(date, def) {
   return {
     userID: USER_ID,
     unitWeight: 'kg',
     unitDistance: 'km',
     dailyWorkouts: [{
       id: 0,
-      name: day.name,
+      userID: USER_ID,
+      workoutID: def.id,
+      name: def.name,
       date,
-      type: 'workoutRegular',
+      type: def.type,
       status: 'scheduled',
       style: 'normal',
-      instructions: '',
-      exercises: day.exercises.map((e) => ({
+      instructions: def.instruction || '',
+      exercises: def.exercises.map((e) => ({
         dailyExerciseID: 0,
         def: {
-          id: e.id,
-          name: e.name,
-          sets: e.sets,
-          target: e.target,
-          side: null,
-          superSetID: 0,
-          supersetType: 'none',
-          intervalTime: 0,
-          restTime: e.rest,
-          recordType: 'strength',
-          type: 'custom',
+          id: e.id, name: e.name, sets: e.sets, target: e.target, targetDetail: e.targetDetail,
+          side: e.side, superSetID: e.superSetID, supersetType: e.supersetType,
+          intervalTime: e.intervalTime, restTime: e.restTime, recordType: e.recordType,
         },
       })),
     }],
@@ -210,7 +198,7 @@ async function run() {
   }
 
   // --- 1. The three workouts inside the block ------------------------------
-  const existing = await am.post('/trainingPlan/getWorkoutDefList', { planID: PLAN_ID, start: 0, count: 50 });
+  let existing = await am.post('/trainingPlan/getWorkoutDefList', { planID: PLAN_ID, start: 0, count: 50 });
   if (existing.total > 0) {
     console.log(`\n  step 1     : plan already holds ${existing.total} workout(s), leaving them alone`);
   } else if (commit) {
@@ -219,9 +207,11 @@ async function run() {
       console.log(`  step 1     : added "${day.name}" (${JSON.stringify(res).slice(0, 80)})`);
       await sleep(150);
     }
+    existing = await am.post('/trainingPlan/getWorkoutDefList', { planID: PLAN_ID, start: 0, count: 50 });
   } else {
     console.log(`\n  step 1     : would add ${DAYS.length} workouts to the plan`);
   }
+  const defs = Object.fromEntries((existing.workouts || []).map((w) => [w.name, w]));
 
   // --- 2. The calendar ------------------------------------------------------
   const cal = await am.post('/calendar/getList', {
@@ -245,7 +235,8 @@ async function run() {
       console.log(`  ${date}  would schedule  ${day.name}`);
       continue;
     }
-    await am.post('/dailyWorkout/set', dailyWorkoutPayload(date, day));
+    if (!defs[day.name]) throw new Error(`"${day.name}" is not in the plan, cannot schedule it`);
+    await am.post('/dailyWorkout/set', dailyWorkoutPayload(date, defs[day.name]));
     console.log(`  ${date}  scheduled       ${day.name}`);
     created++;
     await sleep(150);

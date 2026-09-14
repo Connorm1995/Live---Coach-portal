@@ -985,6 +985,16 @@ The first attempt keyed this on rest time (rest of 0 means warm up), which held 
 
 The constants are in millimetres, measured against rendered output, and are the fragile part of this tool. Pages are fixed height with `overflow: hidden`, so an underestimate clips content rather than reflowing it. The build asserts the printed sheet count matches the layout's page count, but that only catches a page growing past its bounds, not content clipped inside one. Eyeball the first output for a new client before sending it, and re-measure the constants if the card design changes.
 
+### Building a block and scheduling it onto a client calendar (September 2026)
+
+**What it does:** One-off scripts in `backend/db/` (`build-connor-tester1-program.js`, `build-stephen-hudson-sc-program.js`) fill a training plan Connor has already created with its workouts through `/workoutDef/add`, then place those workouts on the client's calendar through `/dailyWorkout/set`. Both dry run by default and only write with `--commit`.
+
+**The undocumented field:** `/dailyWorkout/set` needs `userID` inside every `dailyWorkouts[]` item, not just at the top of the request as the docs show. Without it each item fails `404 User not found`. That error made the 13 Sep attempt look like the token could not schedule at all, and calendar placement was wrongly written off as a manual step. It was pinned down on 14 Sep with probes that could not save anything: every probe carried an invalid date, so the only question was which error came back first. No inner `userID` gave 404, a real one gave `406 Invalid date format` (the user check passed), a bogus one gave 404 again. An empty `dailyWorkouts: []` returns 200 even for a user that does not exist, so it is useless as a test.
+
+**Linking to the plan workout:** Items are also sent with `workoutID`, the def id from the training plan. A workout scheduled in the Trainerize app carries the same link (`detail.workoutID` on the calendar item), and the API-scheduled entry comes back identical in shape. The exercise list is built from the def as Trainerize stored it (read back through `/trainingPlan/getWorkoutDefList`), not from the script's own table, so the calendar copy cannot drift from the plan.
+
+**Safety rules in the scripts:** Never schedule into the past (dates start from the later of the block start and today in Dublin). Skip any date that already holds a workout, so a re-run fills gaps and never doubles up. Refuse to add workouts to a plan that already holds different ones. Read everything back after writing and fail loudly on any mismatch.
+
 ---
 
 ## Trainerize Auto Messages (July 2026)
