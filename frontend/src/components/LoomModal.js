@@ -52,8 +52,10 @@ function LoomModal({ isOpen, onClose, clientId, clientName, onSent }) {
       .then((data) => {
         if (data.pending) {
           setCheckinId(data.pending.checkinId);
-          // Rebuild template with focus text from backend
-          setMessage(buildTemplate(clientName, '', data.pending.focusText || ''));
+          // Rebuild template with focus text from backend. Keep any Loom URL
+          // already pasted while this was loading, or the message falls back
+          // to the placeholder and the URL sync never puts it back.
+          setMessage(buildTemplate(clientName, prevUrlRef.current, data.pending.focusText || ''));
         } else {
           setNoPending(true);
         }
