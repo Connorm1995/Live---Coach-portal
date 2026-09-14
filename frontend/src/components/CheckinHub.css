@@ -117,10 +117,13 @@
 }
 
 /* ── Sub-tabs ── */
+/* Wraps rather than cutting "Not Submitted" off when the browser draws the
+   text larger than asked, for instance with a minimum font size set. */
 .hub-panel__subtabs {
   display: flex;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--color-border);
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-2);
 }
 
 .hub-subtab {
@@ -130,7 +133,7 @@
   color: var(--color-slate);
   background: none;
   border: none;
-  padding: var(--space-3) var(--space-3);
+  padding: var(--space-3) var(--space-2);
   border-bottom: 2px solid transparent;
   transition: color 150ms ease, border-color 150ms ease;
   display: flex;
@@ -215,12 +218,16 @@
 }
 
 /* ── Row ── */
+/* The name has a line to itself, with programme and type underneath. All on
+   one line they only fit at the exact sizes asked for: with a browser minimum
+   font size the small text grew and squeezed the name down to two letters. */
 .hub-row {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   transition: background-color 150ms ease;
 }
@@ -234,20 +241,32 @@
 }
 
 .hub-row__left {
+  flex: 1 1 auto;
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
 }
 
 .hub-row__name {
+  max-width: 100%;
   font-family: var(--font-body);
   font-size: 14px;
   font-weight: 500;
   color: var(--color-black);
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.hub-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-2);
+  max-width: 100%;
 }
 
 .hub-row__program {

@@ -266,11 +266,12 @@ Client rows:
 ● Sarah Murphy           MFC Core      🟢
 ```
 
-- Client name: DM Sans 14px medium, Black
-- Program label: DM Sans 12px, Slate
+- Client name: DM Sans 14px medium, Black, on a line of its own so it always gets the full width
+- Program label: DM Sans 12px, Slate, on the line under the name, followed by the type pill
 - Status dot: 10px circle, Red or Green
 - Row hover: Off White background
-- Row padding: 12px 16px
+- Row padding: 8px 16px
+- The panel must still work with every piece of text at 16px, because a browser minimum font size enlarges anything smaller. Nothing relies on an exact width; the sub-tabs wrap to a second line rather than clip.
 - Separator: 1px `--color-border` between rows
 
 Marking a check-in done without a Loom (Pending rows only):

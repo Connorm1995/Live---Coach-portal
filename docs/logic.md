@@ -2853,3 +2853,31 @@ still in it. The tab itself was not checked on screen: the local test copy used
 for the Check-in Hub work blocks every database write, and the Training tab
 rewrites its cached workouts as it loads, so there it showed "Failed to load
 training data" for reasons unrelated to this change.
+
+---
+
+## Check-in Hub rows and a browser minimum font size (14 Sep 2026)
+
+**The problem:** once the Mark done change was live, Connor's Check-in Hub
+showed client names cut down to two or three letters ("Al...", "P...").
+
+**Why:** his browser draws small text larger than the portal asks for. In his
+screenshot the 11px type pill and 12px programme label came out about as tall
+as the 16px panel title, which is what a browser minimum font size does: it
+only enlarges text set below the minimum. At that size a name, programme, type
+and time cannot all fit on one line of a 360px panel. The Mark done change had
+let the name shorten with "..." when a row ran out of room, which made the name
+the one thing that gave way. The local testing never showed it, because
+nothing in the CSS reveals the enlargement.
+
+**The fix:** each row now puts the name on a line of its own, with the
+programme and type underneath, so the name gets all the width left of the time.
+The Pending / Done / Not Submitted tabs also wrap onto a second line instead of
+cutting "Not Submitted" off at the panel edge, which his screenshot showed as
+well. Their spacing was tightened at the same time: at normal text sizes the
+three tabs were already a few pixels too wide for the panel, so without it they
+would have wrapped for everyone.
+
+**For next time:** check any compact panel with all of its text forced to 16px
+before shipping it, and never make the most important text the part that
+shrinks.

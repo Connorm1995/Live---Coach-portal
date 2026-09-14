@@ -353,10 +353,12 @@ function CheckinHub({ isOpen, onClose, onSelectClient }) {
               >
                 <div className="hub-row__left">
                   <span className="hub-row__name">{row.name}</span>
-                  <span className="hub-row__program">{formatProgram(row.program)}</span>
-                  {row.type && (
-                    <span className="hub-row__type">{formatType(row.type)}</span>
-                  )}
+                  <span className="hub-row__meta">
+                    <span className="hub-row__program">{formatProgram(row.program)}</span>
+                    {row.type && (
+                      <span className="hub-row__type">{formatType(row.type)}</span>
+                    )}
+                  </span>
                 </div>
                 <div className="hub-row__right">
                   {subTab === 'pending' && row.submittedAt && (
