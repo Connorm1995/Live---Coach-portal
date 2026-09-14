@@ -509,6 +509,17 @@ function WorkPanel({ dayMap, days, complianceData }) {
     return d >= 1 ? `${d.toFixed(1)} km` : `${Math.round(d * 1000)} m`;
   };
 
+  // Trainerize syncs every tracker entry as its own session, so collapse
+  // repeats: "General ×5, Walking ×2" rather than the name five times.
+  const condenseNames = (list, fallbackName) => {
+    const counts = new Map();
+    for (const a of list) {
+      const name = a.name || fallbackName;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    return [...counts].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(', ');
+  };
+
   function cellFor(rowKey, date) {
     const d = dayMap[date] || {};
     const acts = d.activities || [];
@@ -523,8 +534,8 @@ function WorkPanel({ dayMap, days, complianceData }) {
       case 'cardio': {
         const done = acts.filter(a => (a.type === 'cardio' || a.type === 'walking') && a.status === 'completed');
         const planned = acts.filter(a => (a.type === 'cardio' || a.type === 'walking') && a.status !== 'completed');
-        if (done.length) return { text: done.map(a => a.name || 'Cardio').join(', '), state: 'done' };
-        if (planned.length) return { text: planned.map(a => a.name || 'Cardio').join(', '), state: 'missed' };
+        if (done.length) return { text: condenseNames(done, 'Cardio'), state: 'done' };
+        if (planned.length) return { text: condenseNames(planned, 'Cardio'), state: 'missed' };
         return null;
       }
       case 'steps': {

@@ -599,6 +599,11 @@
   text-overflow: ellipsis;
 }
 
+.cal-panel__activity-count {
+  margin-left: 4px;
+  font-weight: 700;
+}
+
 .cal-panel__activity--strength {
   background: var(--color-cal-strength);
 }

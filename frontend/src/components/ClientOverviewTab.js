@@ -600,6 +600,25 @@ function DayOverlay({ date, dayData, clientId, onClose }) {
   );
 }
 
+// Trainerize syncs every tracker entry as its own session, so a busy day can
+// hold ten "Walking" or "General" rows. The calendar shows one pill per name
+// with a count; the day overlay still lists each session.
+function groupSessions(sessions, fallbackName) {
+  const groups = [];
+  const byKey = {};
+  for (const s of sessions) {
+    const name = s.name || fallbackName;
+    const scheduled = s.status === 'scheduled';
+    const key = `${name}|${scheduled}`;
+    if (!byKey[key]) {
+      byKey[key] = { name, scheduled, count: 0 };
+      groups.push(byKey[key]);
+    }
+    byKey[key].count += 1;
+  }
+  return groups;
+}
+
 // ─── CalendarPanel (right column) ──────────────────────────────────
 
 function CalendarPanel({ calendar, calendarMonth, calendarYear, setCalendarMonth, setCalendarYear, selectedDay, setSelectedDay, clientId }) {
@@ -694,8 +713,15 @@ function CalendarPanel({ calendar, calendarMonth, calendarYear, setCalendarMonth
               {strengthSessions.map((s, si) => (
                 <span key={`s${si}`} className={`cal-panel__activity cal-panel__activity--strength${s.status === 'scheduled' ? ' cal-panel__activity--scheduled' : ''}`}>{s.name || 'Strength'}</span>
               ))}
-              {cardioSessions.map((c, ci) => (
-                <span key={`c${ci}`} className={`cal-panel__activity cal-panel__activity--cardio${c.status === 'scheduled' ? ' cal-panel__activity--scheduled' : ''}`}>{c.name || 'Cardio'}</span>
+              {groupSessions(cardioSessions, 'Cardio').map((g, gi) => (
+                <span
+                  key={`c${gi}`}
+                  className={`cal-panel__activity cal-panel__activity--cardio${g.scheduled ? ' cal-panel__activity--scheduled' : ''}`}
+                  title={g.count > 1 ? `${g.count} ${g.name} sessions` : undefined}
+                >
+                  {g.name}
+                  {g.count > 1 && <span className="cal-panel__activity-count">×{g.count}</span>}
+                </span>
               ))}
               {/* Body stats (weight) */}
               {dayData?.weight && (

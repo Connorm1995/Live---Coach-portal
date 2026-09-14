@@ -358,6 +358,16 @@ The gauge shows one threshold at 10% of total daily calories, which is the WHO (
 
 ---
 
+### Repeated Cardio Sessions Collapse Into One Pill
+
+**What it does:** On the Overview calendar, cardio and walking sessions with the same name on the same day show as one pill with a count, e.g. `Walking ×6` or `General ×5`. Hovering the pill says how many sessions it covers. Completed and scheduled sessions of the same name stay as separate pills so the outlined "scheduled" style is not lost. Strength pills are unchanged. The Check-in Mode Cardio row uses the same idea in text: `General ×5, Walking ×2`.
+
+**Why:** Some clients' watches sync every tracker entry to Trainerize as a separate cardio session. Brian Caulfield had 12 cardio entries on 3 Aug 2026 and regularly 5 to 9 a day, which filled every cell with near-identical pills. Connor only needs to see that a type of cardio happened and roughly how much.
+
+**How it works:** Grouping is display-only, in the frontend (`groupSessions` in `ClientOverviewTab.js`, `condenseNames` in `CheckinMode.js`). The API still returns every session, and clicking a day opens the overlay that lists each one with its duration and distance.
+
+---
+
 ## Coach's Corner - Direct Messages
 
 ### How DM Threads Work
