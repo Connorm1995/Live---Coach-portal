@@ -2285,6 +2285,10 @@ four seconds so they are not sitting in the recording, returning on mouse move.
 
 ## Training progression on one load scale (August 2026)
 
+**Status, 14 Sep 2026:** the Progression section is no longer on the Training
+tab. The server code described here was kept and still works - see "Progression
+section taken off the Training tab (14 Sep 2026)" further down.
+
 ### The problem
 
 Progress was read off `weight x reps`. Across 9,384 tracked workouts and 481
@@ -2809,3 +2813,43 @@ squeezed the client's name down to its first few letters.
 - **The Loom popup stops finding it.** Once marked done, the Loom button for
   that client shows "No pending check-in found". To send a Loom after all, undo
   it first.
+
+---
+
+## Progression section taken off the Training tab (14 Sep 2026)
+
+Connor asked for the Progression section to come off the Training tab because
+he is not using it at the moment. It is the section described in "Training
+progression on one load scale (August 2026)" above: a card per exercise on one
+load scale, and the "How is each movement loaded?" setup behind the Load types
+button.
+
+**What went:** `ExerciseProgress.js`, `ExerciseProgress.css`, and the two lines
+in `TrainingTab.js` that imported and rendered the section. Both files were
+moved, not deleted, to `~/coach-portal-backup-claude/2026-09-14-progression-section/`,
+whose `RESTORE.md` has the exact steps to bring it back. The stylesheet was safe
+to move with it: every rule in it is an `exprog` class used nowhere else. The
+two shared classes the section borrowed, `training-section` and `data-source`,
+are defined in `TrainingTab.css` and `ClientOverviewTab.css` and are still used
+by other sections.
+
+**What stayed, deliberately:** the three endpoints
+(`GET /api/training/:id/progression`, and `GET` and `PUT
+/api/training/:id/exercise-modes`), `lib/exercise-load.js`,
+`lib/exercise-progress.js`, and every load type already saved in
+`exercise_load_modes`. This is the opposite call from the `routes/overview.js`
+trim on 12 Sep, and the difference is intent. That endpoint served a screen
+that had been replaced for good; this one serves a section that is paused. The
+server side holds the careful part - the load modes, the bodyweight lookup, the
+comparison rules - so keeping it means the section comes back by restoring two
+front-end files, with the answers already given still in place. The endpoints
+sit behind the login gate like every `/api/` route and do nothing unless
+called, and `routes/training.js` has a comment above them saying so.
+
+**Verified:** the build compiles without warnings, and the new bundle contains
+none of the section's code - no `exprog` class, no "Load types" text, no
+`exercise-modes` call - while Key Lifts and the other Training sections are
+still in it. The tab itself was not checked on screen: the local test copy used
+for the Check-in Hub work blocks every database write, and the Training tab
+rewrites its cached workouts as it loads, so there it showed "Failed to load
+training data" for reasons unrelated to this change.

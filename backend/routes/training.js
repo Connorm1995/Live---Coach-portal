@@ -1114,6 +1114,10 @@ router.post('/:id/data-flag', async (req, res) => {
 // ---------------------------------------------------------------------------
 // EXERCISE LOAD MODES + PROGRESSION
 // ---------------------------------------------------------------------------
+// Nothing in the portal calls these since 14 Sep 2026, when the Progression
+// section was taken off the Training tab. They are kept, along with the load
+// types already saved in exercise_load_modes, so the section can come back by
+// restoring two front-end files. See docs/logic.md.
 
 async function getLoadModes() {
   const r = await pool.query(
