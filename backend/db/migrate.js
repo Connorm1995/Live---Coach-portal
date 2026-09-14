@@ -76,6 +76,15 @@ async function migrate() {
     // Add form_data column to checkins (stores full Typeform answers as JSONB)
     await client.query(`ALTER TABLE checkins ADD COLUMN IF NOT EXISTS form_data JSONB`);
 
+    // How a check-in left Pending: 'loom' when the Loom DM was sent, or
+    // 'marked_done' when the coach cleared it by hand in the Check-in Hub,
+    // usually after a call. NULL on check-ins responded to before this existed,
+    // all of which were Looms.
+    await client.query(`
+      ALTER TABLE checkins ADD COLUMN IF NOT EXISTS responded_via VARCHAR
+        CHECK (responded_via IN ('loom', 'marked_done'))
+    `);
+
     // Weekly focus table - coach's priority notes per client per week
     await client.query(`
       CREATE TABLE IF NOT EXISTS weekly_focus (

@@ -273,6 +273,13 @@ Client rows:
 - Row padding: 12px 16px
 - Separator: 1px `--color-border` between rows
 
+Marking a check-in done without a Loom (Pending rows only):
+
+- Row hover shows a Done button in place of the time and status dot: DM Sans 12px medium, Slate, check icon, white pill with a 1px `--color-border` border. Teal text and border on hover. Always shown on touchscreens.
+- Clicking it replaces the row with a confirmation: Off White background, 3px Teal inset left edge, title in DM Sans 14px 600 Black ("Mark Joe's check-in as done?"), a Slate 12px line ("It moves to Done without a Loom. Nothing is sent to Joe."), then Cancel (white, bordered) and Mark done (Teal) right-aligned underneath.
+- After saving, a Teal-tinted note under the sub-tabs reads "Joe Bloggs moved to Done." with an Undo link, for 8 seconds. Errors use the same note in red.
+- In Done, a marked-done row shows "No Loom" in Slate 12px in place of the time (the time is in its tooltip) and a hollow green dot, with an Undo button on hover where Done was.
+
 ### Loom DM Template
 
 A modal that opens when Connor clicks the Loom button. Not a page navigation.

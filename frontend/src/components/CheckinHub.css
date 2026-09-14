@@ -163,6 +163,42 @@
   color: var(--color-white);
 }
 
+/* ── Notice (result of a mark done or undo) ── */
+.hub-panel__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-3) var(--space-4) var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-black);
+  background: rgba(35, 184, 184, 0.08);
+  border: 1px solid rgba(35, 184, 184, 0.25);
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+.hub-panel__notice--error {
+  color: var(--color-red);
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.hub-panel__notice-undo {
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-teal);
+}
+
+.hub-panel__notice-undo:hover {
+  text-decoration: underline;
+}
+
 /* ── List ── */
 .hub-panel__list {
   flex: 1;
@@ -180,6 +216,7 @@
 
 /* ── Row ── */
 .hub-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -209,6 +246,8 @@
   font-weight: 500;
   color: var(--color-black);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hub-row__program {
@@ -257,4 +296,148 @@
 
 .hub-row__dot--green {
   background: var(--color-green);
+}
+
+/* Done, but by hand rather than with a Loom. */
+.hub-row__dot--hollow {
+  box-shadow: inset 0 0 0 2px var(--color-green);
+}
+
+.hub-row__no-loom {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-slate);
+  white-space: nowrap;
+}
+
+/* ── Mark done / Undo button ── */
+/* Hidden until the row is hovered, then shown where the time and dot were. */
+.hub-row__action {
+  position: absolute;
+  top: 50%;
+  right: var(--space-4);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--color-slate);
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  padding: 6px 10px;
+  opacity: 0;
+  transition: opacity 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.hub-row:hover .hub-row__action,
+.hub-row:focus-within .hub-row__action {
+  opacity: 1;
+}
+
+.hub-row--actionable:hover .hub-row__right,
+.hub-row--actionable:focus-within .hub-row__right {
+  visibility: hidden;
+}
+
+.hub-row__action:hover {
+  color: var(--color-teal);
+  border-color: var(--color-teal);
+}
+
+/* A touchscreen has no hover, so the button is always shown there. */
+@media (hover: none) {
+  .hub-row__action {
+    opacity: 1;
+  }
+
+  .hub-row--actionable .hub-row__right {
+    visibility: hidden;
+  }
+}
+
+/* ── Mark done confirmation ── */
+/* Takes the row's place in the list until confirmed or cancelled. */
+.hub-confirm {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-off-white);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: inset 3px 0 0 var(--color-teal);
+  animation: hub-confirm-in 150ms ease-out;
+}
+
+.hub-confirm:last-child {
+  border-bottom: none;
+}
+
+@keyframes hub-confirm-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hub-confirm__title {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-black);
+  line-height: 1.3;
+}
+
+.hub-confirm__text {
+  margin-top: 2px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-slate);
+  line-height: 1.4;
+}
+
+.hub-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.hub-confirm__btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 8px 14px;
+  border-radius: 8px;
+  transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+
+.hub-confirm__btn--cancel {
+  color: var(--color-slate);
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+}
+
+.hub-confirm__btn--cancel:hover:not(:disabled) {
+  color: var(--color-black);
+}
+
+.hub-confirm__btn--confirm {
+  color: var(--color-white);
+  background: var(--color-teal);
+  border: 1px solid var(--color-teal);
+}
+
+.hub-confirm__btn--confirm:hover:not(:disabled) {
+  background: var(--color-teal-bright);
+  border-color: var(--color-teal-bright);
+}
+
+.hub-confirm__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }

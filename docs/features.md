@@ -33,7 +33,9 @@ A discreet, coach-only trigger button tucked in the top-left corner of the clien
 
 #### How "Responded" Is Determined
 
-A check-in is marked as responded (green) automatically when Connor sends the pre-templated Loom DM via the built-in direct message button on the client's review screen. No manual toggle required.
+A check-in is marked as responded (green) automatically when Connor sends the pre-templated Loom DM via the built-in direct message button on the client's review screen.
+
+If a check-in was dealt with another way, such as a call, Connor can mark it done from Pending without a Loom: hover the row, click Done, then confirm with Mark done. Nothing is sent to the client. It appears in Done labelled "No Loom", and Undo moves it back to Pending.
 
 #### Filters
 

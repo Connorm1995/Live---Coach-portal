@@ -2728,3 +2728,84 @@ strain, calories, average and max heart rate, sleep hours, deep, REM, sleep
 performance, disturbances, timezone offset and night date. The seam was checked
 separately: sleep, resting HR and calories come from Whoop for him, `step`
 correctly falls through to Trainerize, and a control client is untouched.
+
+---
+
+## Marking a check-in done without a Loom (14 Sep 2026)
+
+**What it does:** a check-in or EOM report in the Check-in Hub's Pending list
+can be marked done without sending a Loom. It is for check-ins dealt with
+another way, most often a call booked after the client submitted. Before this,
+those clients sat in Pending for the rest of the cycle, so Pending stopped being
+a true list of who still needed a Loom.
+
+**How it is used:** hover a row in Pending and a Done button appears where the
+time and red dot were. Clicking it swaps the row for a confirmation - "Mark
+Joe's check-in as done? It moves to Done without a Loom. Nothing is sent to
+Joe." - with Cancel and Mark done. Only Mark done saves anything. Clicking the
+rest of the row still opens the client, as before.
+
+### Why it takes two clicks that cannot become one
+
+The brief was quick, but impossible to do by mistake. A confirmation on its own
+does not guarantee that, because the second click of a double-click lands on
+whatever has just appeared under the cursor. Three things close that off:
+
+- **Mark done is not where Done was.** The confirmation is taller than a row
+  and its buttons sit along the bottom, so a second click at the same spot lands
+  on the question text.
+- **A click on Mark done within 400ms of the confirmation opening is ignored**
+  (`CONFIRM_ARM_MS` in `CheckinHub.js`). Nobody reads the question and reaches
+  the button that fast; a double-click fits both clicks inside it.
+- **Keyboard focus goes to Cancel, not Mark done,** so pressing Enter twice
+  backs out rather than saving. Escape closes the confirmation first and only
+  closes the hub on a second press.
+
+### How it is stored
+
+`checkins.responded_via` records how a check-in left Pending: `loom` when the
+Loom DM was sent through `send-loom`, `marked_done` when it was cleared in the
+hub. Marking done sets the same `responded = true` and `responded_at` a Loom
+does, so everything that already reads `responded` treats the check-in as done
+without needing to change. Check-ins responded to before 14 Sep 2026 have
+`NULL`, and every one of those was a Loom, because `send-loom` was the only
+thing in the portal that ever set `responded`.
+
+The column was added to the live database on 14 Sep 2026, before the code that
+reads it was deployed, using the statement now in `backend/db/migrate.js`. It is
+nullable with no default, so it changed no existing row (0 of 1,176 check-ins),
+and the nightly backup includes it on its own because it reads each table's
+column list from `information_schema`.
+
+**Endpoints:** `POST /api/checkins/:id/mark-done` and
+`POST /api/checkins/:id/unmark-done`. Mark done only acts on a check-in that is
+still pending. If a Loom was sent from another tab in the meantime it returns
+409, and the hub reloads its list rather than guessing.
+
+### Undo
+
+After marking done, a note under the sub-tabs reads "Joe Bloggs moved to Done."
+with an Undo button, for 8 seconds. A marked-done row in the Done tab also shows
+an Undo button on hover for the rest of the cycle. Undo puts the check-in back
+in Pending exactly as it was.
+
+Undo only reverses `marked_done`. A check-in whose Loom was sent cannot be moved
+back, from the hub or by calling the endpoint directly, because the client
+really did get their feedback and the portal should not say otherwise.
+
+In Done, a marked-done row shows "No Loom" in place of the time, and a hollow
+green dot instead of the solid one, so a glance tells a Loom apart from a call.
+The time is in the label's tooltip instead: shown alongside "No Loom", it
+squeezed the client's name down to its first few letters.
+
+### What it does not do
+
+- **Nothing is sent to the client.** No Trainerize call is made.
+- **Reminders are unaffected.** Nothing that sends reminders or auto messages
+  reads `responded`.
+- **Not Submitted rows cannot be marked done.** There is no check-in to mark,
+  and creating one would stop that client's reminders, which is a different
+  decision from "I spoke to them".
+- **The Loom popup stops finding it.** Once marked done, the Loom button for
+  that client shows "No pending check-in found". To send a Loom after all, undo
+  it first.

@@ -46,7 +46,8 @@ router.get('/hub', async (req, res) => {
         c.type,
         c.submitted_at,
         c.responded,
-        c.responded_at
+        c.responded_at,
+        c.responded_via
       FROM checkins c
       JOIN clients cl ON cl.id = c.client_id
       WHERE c.coach_id = $1
@@ -75,6 +76,7 @@ router.get('/hub', async (req, res) => {
       };
       if (row.responded) {
         entry.respondedAt = row.responded_at;
+        entry.respondedVia = row.responded_via;
         done.push(entry);
       } else {
         pending.push(entry);
@@ -217,7 +219,7 @@ router.post('/:id/send-loom', async (req, res) => {
     // 3. Mark as responded
     const updateResult = await pool.query(`
       UPDATE checkins
-      SET responded = true, responded_at = now()
+      SET responded = true, responded_at = now(), responded_via = 'loom'
       WHERE id = $1 AND responded = false
       RETURNING id, client_id, responded, responded_at
     `, [id]);
@@ -257,6 +259,78 @@ router.patch('/:id/respond', async (req, res) => {
   } catch (err) {
     console.error('Error marking check-in as responded:', err.message);
     res.status(500).json({ error: 'Failed to update check-in' });
+  }
+});
+
+// POST /api/checkins/:id/mark-done - take a check-in off Pending without a Loom,
+// for when it was dealt with another way, usually a call. Sends nothing to the
+// client. The hub asks for confirmation before calling this, and
+// /unmark-done reverses it.
+router.post('/:id/mark-done', async (req, res) => {
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid check-in id' });
+  }
+
+  try {
+    const result = await pool.query(`
+      UPDATE checkins
+      SET responded = true, responded_at = now(), responded_via = 'marked_done'
+      WHERE id = $1 AND coach_id = $2 AND responded = false
+      RETURNING id, responded_at, responded_via
+    `, [id, COACH_ID]);
+
+    if (result.rows.length === 0) {
+      const existing = await pool.query(
+        'SELECT id FROM checkins WHERE id = $1 AND coach_id = $2',
+        [id, COACH_ID]
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: 'Check-in not found' });
+      }
+      return res.status(409).json({ error: 'Check-in is already done' });
+    }
+
+    const row = result.rows[0];
+    res.json({ checkinId: row.id, respondedAt: row.responded_at, respondedVia: row.responded_via });
+  } catch (err) {
+    console.error('Error marking check-in done:', err.message);
+    res.status(500).json({ error: 'Failed to mark check-in done' });
+  }
+});
+
+// POST /api/checkins/:id/unmark-done - put a check-in that was marked done back
+// on Pending. Only reverses marked_done: a check-in whose Loom was actually sent
+// stays done, because the client really did get their feedback.
+router.post('/:id/unmark-done', async (req, res) => {
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid check-in id' });
+  }
+
+  try {
+    const result = await pool.query(`
+      UPDATE checkins
+      SET responded = false, responded_at = NULL, responded_via = NULL
+      WHERE id = $1 AND coach_id = $2 AND responded_via = 'marked_done'
+      RETURNING id
+    `, [id, COACH_ID]);
+
+    if (result.rows.length === 0) {
+      const existing = await pool.query(
+        'SELECT id FROM checkins WHERE id = $1 AND coach_id = $2',
+        [id, COACH_ID]
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: 'Check-in not found' });
+      }
+      return res.status(409).json({ error: 'Only a check-in marked done without a Loom can be moved back' });
+    }
+
+    res.json({ checkinId: result.rows[0].id });
+  } catch (err) {
+    console.error('Error moving check-in back to Pending:', err.message);
+    res.status(500).json({ error: 'Failed to move check-in back to Pending' });
   }
 });
 
