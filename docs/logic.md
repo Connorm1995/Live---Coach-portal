@@ -1005,6 +1005,10 @@ The constants are in millimetres, measured against rendered output, and are the 
 
 **Several workouts on one day.** Martin trains at home and picks between a longer and a shorter version of each day, so each training day holds the longer session, the shorter one and bomb proof back (as his previous block's calendar did). Each is its own `/dailyWorkout/set` call. The read back checks every day holds each of its workouts exactly once, linked to the plan by `detail.workoutID`, and nothing else from the block.
 
+**Editing a block after it is scheduled (17 Sep 2026):** `/workoutDef/set` on a plan workout also changes every calendar copy linked to it by `workoutID`. Brian Caulfield's Day 2 and Day 3 were rebuilt after they were already on 16 future dates, and once the two plan workouts were rewritten, all 16 scheduled copies read back with the new exercises, without touching the calendar. (Checked on entries still `scheduled`; whether it also rewrites a session a client has logged was not tested and should not be assumed.) `/workoutDef/set` replaces the whole workout, so the script sends all of it, warm up and instructions included, and saves the old version to `~/coach-portal-backup-claude/trainerize-blocks-2026-09-21/` first. The script also carries a fallback that edits a calendar copy in place with `/dailyWorkout/set` and its existing id (the API reference documents a non-zero id as an edit), but it was not needed.
+
+**Supersets in a busy gym:** Brian trains in a busy commercial gym, so a superset only works when both exercises share one station (one bench and a set of dumbbells, say). The first version paired exercises on two different machines, which he cannot hold at once. Days 2 and 3 are now straight sets in the order he moves through the gym.
+
 ---
 
 ## Trainerize Auto Messages (July 2026)

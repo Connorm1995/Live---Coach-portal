@@ -57,10 +57,21 @@
  * block's workout is left alone, and a date holding any other workout is skipped
  * and reported rather than doubled up.
  *
+ * CHANGING WHAT IS ALREADY IN (--update). Without it, a workout already in the
+ * plan that differs from the table below is refused. With it, the plan workout is
+ * rewritten with /workoutDef/set (the whole workout, since set replaces it), and
+ * every calendar copy still 'scheduled' is edited in place with /dailyWorkout/set
+ * using its existing id, which the API reference documents as an edit. Anything
+ * the client has started or logged is never touched. Both are saved to
+ * ~/coach-portal-backup-claude/trainerize-blocks-2026-09-21/ before the write, and
+ * each calendar edit is read straight back before the next one.
+ *
  * Usage:
  *   node backend/db/build-blocks-2026-09-21.js
  *   node backend/db/build-blocks-2026-09-21.js --client brian
  *   node backend/db/build-blocks-2026-09-21.js --commit
+ *   node backend/db/build-blocks-2026-09-21.js --client brian --update            (dry run)
+ *   node backend/db/build-blocks-2026-09-21.js --client brian --update --commit
  */
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
@@ -97,13 +108,19 @@ const CLOSE_GRIP_CUE = '10-20 reps, controlled tempo *hands under shoulders, elb
 // BRIAN CAULFIELD
 // 3 day full body, about 45 minutes each, under time pressure. Golfer's elbow
 // and rotator cuff issues (and sore thumbs in July). Each day stays in one or two
-// parts of the gym: day 1 at one bench with dumbbells, day 2 at the trap bar then
-// the cable station, day 3 on the machines. Carried from his last block: straps
+// parts of the gym: day 1 at one bench with dumbbells, day 2 in the free weights
+// then the cables, day 3 on the machines. Carried from his last block: straps
 // on every pull, external rotations and forearm curls. Barbell squats are out
 // this block because holding the bar is a common irritant for both the elbow and
 // the shoulder; leg press and split squats cover the legs instead. Decline sit
-// ups finish day 2: Connor says he hates the kneeling Pallof press, and the
+// ups replace the kneeling Pallof press: Connor says he hates it, and the
 // calendar agrees (one set logged when it was last in his sessions, in August).
+//
+// SUPERSETS ONLY ON DAY 1. His gym is busy, so he cannot hold two machines or
+// stations at once. Day 1's pairs share one bench and one set of dumbbells;
+// days 2 and 3 are straight sets in the order he moves through the gym, with
+// the seated cable row and the deadbug dropped to keep them near 45 minutes.
+// The first version (17 Sep) paired exercises across stations; Connor caught it.
 //
 // Days: Mon, Wed, Fri. Every one of his 123 sessions in the last 12 months was
 // on one of those three days, Day 1 always on a Monday.
@@ -136,40 +153,35 @@ const BRIAN = {
     },
     {
       name: 'Strength - Day 2',
-      where: 'Trap bar and landmine, then the cable station',
+      where: 'Free weights (trap bar, landmine, decline bench), then the cables. Straight sets',
       exercises: [
         WARM_UP,
-        { id: 8160404, name: 'Trap bar deadlift', sets: 3, rest: 0, ss: 1,
+        { id: 8160404, name: 'Trap bar deadlift', sets: 3, rest: 120,
           target: '*use lifting straps* 6-8 reps, controlled tempo - start every rep from a dead stop, no bouncing' },
-        { id: 8029031, name: 'Landmine shoulder press', sets: 3, rest: 90, ss: 1,
+        { id: 8029031, name: 'Landmine shoulder press', sets: 3, rest: 60,
           target: "8-12 reps each side, controlled tempo - this is all about exposure without overdoing it. Stay upright and let the shoulder blade wrap around your rib cage at the top. Let me know if it's not agreeing with your shoulder" },
-        { id: 8045929, name: 'Neutral grip lat pulldowns', sets: 3, rest: 0, ss: 2,
-          target: '*use lifting straps* 10-12 reps, controlled tempo - handles about shoulder width' },
-        { id: 16962407, name: 'Cable shoulder external rotation', sets: 3, rest: 90, ss: 2,
-          target: '12-15 reps each side, controlled tempo - this is a rehab exercise, you should not be straining to finish it. If the lightest setting on the cable is too heavy, let me know' },
-        { id: 8030084, name: 'Seated cable rows', sets: 3, rest: 0, ss: 3,
-          target: '*use lifting straps* 10-12 reps, controlled tempo - neutral handle' },
-        { id: 8908395, name: 'Decline sit up', sets: 3, rest: 60, ss: 3,
+        { id: 8908395, name: 'Decline sit up', sets: 3, rest: 60,
           target: '12-20 reps, controlled tempo - hold a weight plate on your chest once you hit the top of the rep range' },
+        { id: 8045929, name: 'Neutral grip lat pulldowns', sets: 3, rest: 90,
+          target: '*use lifting straps* 10-12 reps, controlled tempo - handles about shoulder width' },
+        { id: 16962407, name: 'Cable shoulder external rotation', sets: 2, rest: 45,
+          target: '12-15 reps each side, controlled tempo - this is a rehab exercise, you should not be straining to finish it. If the lightest setting on the cable is too heavy, let me know' },
       ],
     },
     {
       name: 'Strength - Day 3',
-      where: 'The machines, then the back extension bench',
+      where: 'The machines, then the back extension bench and dumbbells. Straight sets',
       exercises: [
         WARM_UP,
-        { id: 8030110, name: 'Quad Focused Leg Press', sets: 3, rest: 0, ss: 1,
+        { id: 8030110, name: 'Quad Focused Leg Press', sets: 3, rest: 90,
           target: '10-12 reps, controlled tempo' },
-        { id: 16824759, name: 'Dumbbell forearm curls', sets: 3, rest: 90, ss: 1,
-          target: `${FOREARM_CUE}. Keep a light dumbbell beside the leg press and do these between sets` },
-        { id: 9189231, name: 'Machine chest press', sets: 3, rest: 0, ss: 2,
+        { id: 9189231, name: 'Machine chest press', sets: 3, rest: 90,
           target: "8-12 reps, controlled tempo - please let me know if these aren't grooving with the elbow or shoulder" },
-        { id: 8558352, name: 'Seated leg curls (pad on thighs)', sets: 3, rest: 90, ss: 2,
+        { id: 8558352, name: 'Seated leg curls (pad on thighs)', sets: 3, rest: 75,
           target: '10-15 reps, controlled tempo' },
-        { id: 8166334, name: 'Back extensions', sets: 3, rest: 0, ss: 3,
+        { id: 8166334, name: 'Back extensions', sets: 2, rest: 60,
           target: '12-15 reps, slow tempo - finish each rep by squeezing your glutes, not by arching your lower back' },
-        { id: 12059544, name: 'Deadbug', sets: 3, rest: 60, ss: 3,
-          target: '8-10 reps each side, controlled tempo - keep your lower back pressed into the floor throughout' },
+        { id: 16824759, name: 'Dumbbell forearm curls', sets: 3, rest: 45, target: FOREARM_CUE },
       ],
     },
   ],
@@ -696,8 +708,36 @@ function printClient(c) {
   }
 }
 
+// Before anything already in Trainerize is changed (--update), it is saved here.
+const BACKUP_DIR = require('path').join(require('os').homedir(), 'coach-portal-backup-claude', 'trainerize-blocks-2026-09-21');
+
+function backup(c, label, data) {
+  const fs = require('fs');
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const file = require('path').join(BACKUP_DIR, `${c.key}-${label}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  fs.writeFileSync(file, JSON.stringify(data, null, 1));
+  console.log(`  backup    : ${file}`);
+}
+
+/** /workoutDef/set replaces the whole workout, so send all of it: warm up, instructions, every exercise. */
+function workoutSetPayload(id, w) {
+  return { workoutDef: { id, ...workoutPayload(null, w).workoutDef } };
+}
+
+/** A scheduled copy compared with the table, in the shape compareWorkout reads. */
+function compareScheduled(w, dw) {
+  return compareWorkout(w, { instruction: dw.instructions || '', exercises: (dw.exercises || []).map((e) => e.def) });
+}
+
+/** /dailyWorkout/set with the existing id edits that calendar entry in place (id 0 would add one). */
+function updateScheduledPayload(userID, dw, def) {
+  const payload = scheduledWorkoutPayload(userID, dw.date, def);
+  Object.assign(payload.dailyWorkouts[0], { id: dw.id, status: dw.status, style: dw.style || 'normal' });
+  return payload;
+}
+
 /** Build (or finish building) one client's block. Returns {problems, defs}. */
-async function buildClient(c, commit) {
+async function buildClient(c, commit, update) {
   const want = planDates(c.plan.weeks);
   const plans = (await am.post('/trainingPlan/getList', { userid: c.userID })).plans || [];
 
@@ -749,15 +789,28 @@ async function buildClient(c, commit) {
   let stored = (await am.post('/trainingPlan/getWorkoutDefList', { planID: plan.id, start: 0, count: 50 })).workouts || [];
   const unknown = stored.filter((s) => !c.workouts.some((w) => w.name === s.name));
   if (unknown.length) return fail(`plan holds workouts this script did not write: ${unknown.map((s) => `"${s.name}"`).join(', ')}`);
-  for (const s of stored) {
-    const p = compareWorkout(c.workouts.find((w) => w.name === s.name), s);
-    if (p.length) return fail(`"${s.name}" is already in the plan but differs, refusing to touch it`, ...p);
+  const differing = stored
+    .map((s) => ({ s, problems: compareWorkout(c.workouts.find((w) => w.name === s.name), s) }))
+    .filter((d) => d.problems.length);
+  if (differing.length && !update) {
+    return fail(...differing.flatMap((d) => [`"${d.s.name}" is already in the plan but differs. Re-run with --update to change it`, ...d.problems]));
+  }
+  for (const d of differing) {
+    console.log(`  ${commit ? 'updating ' : 'would update'}: "${d.s.name}" (${d.problems.length} differences from the table)`);
   }
 
   const missing = c.workouts.filter((w) => !stored.some((s) => s.name === w.name));
   if (!commit) {
-    console.log(`  workouts  : ${stored.length} present and correct, would add ${missing.length}`);
+    console.log(`  workouts  : ${stored.length - differing.length} present and correct, would update ${differing.length}, would add ${missing.length}`);
     return { problems: [], defs: Object.fromEntries(stored.map((s) => [s.name, s])) };
+  }
+  if (differing.length) {
+    backup(c, 'workout-defs-before', await am.post('/workoutDef/get', { ids: differing.map((d) => d.s.id) }));
+    for (const d of differing) {
+      await am.post('/workoutDef/set', workoutSetPayload(d.s.id, c.workouts.find((w) => w.name === d.s.name)));
+      console.log(`  updated   : "${d.s.name}" (workout ${d.s.id})`);
+      await sleep(250);
+    }
   }
   for (const w of missing) {
     const res = await am.post('/workoutDef/add', workoutPayload(plan.id, w));
@@ -785,7 +838,7 @@ function fail(...problems) {
  * Put the block on the client's training days. `defs` are the plan's workouts as
  * Trainerize stored them (null in a dry run before the plan exists).
  */
-async function scheduleClient(c, defs, commit) {
+async function scheduleClient(c, defs, commit, update) {
   const dates = scheduleFor(c);
   if (!dates.length) {
     console.log('  calendar  : no training days left in the block');
@@ -805,6 +858,7 @@ async function scheduleClient(c, defs, commit) {
   let added = 0;
   let already = 0;
   const skippedDays = new Set();
+  const present = []; // this block's workouts already on the calendar, checked below with --update
   for (const { date, weekday, workouts } of dates) {
     const existing = before.get(date) || [];
     const other = existing.filter((it) => !ours(it));
@@ -816,8 +870,10 @@ async function scheduleClient(c, defs, commit) {
     const line = [];
     for (const name of workouts) {
       const def = defs && defs[name];
-      if (def && existing.some((it) => it.detail && it.detail.workoutID === def.id)) {
+      const item = def && existing.find((it) => it.detail && it.detail.workoutID === def.id);
+      if (item) {
         already += 1;
+        present.push({ date, name, item });
         line.push(`${name} (already there)`);
         continue;
       }
@@ -831,6 +887,40 @@ async function scheduleClient(c, defs, commit) {
     console.log(`    ${date} ${weekday}  ${commit ? 'scheduled' : 'would schedule'}  ${line.join('  +  ')}`);
   }
   console.log(`  calendar  : ${commit ? 'scheduled' : 'would schedule'} ${added}, already there ${already}, days skipped ${skippedDays.size}`);
+
+  // --update: bring calendar copies that no longer match the table into line. Only
+  // entries still 'scheduled' are touched; anything the client has started or
+  // logged is reported and left alone. Each edit is read straight back, and the
+  // run stops at the first one that does not come back right.
+  if (update && present.length) {
+    const copies = [];
+    for (let i = 0; i < present.length; i += 10) {
+      const res = await am.post('/dailyWorkout/get', { ids: present.slice(i, i + 10).map((p) => p.item.id), unitWeight: 'kg' });
+      copies.push(...(res.dailyWorkouts || []));
+      await sleep(150);
+    }
+    const stale = copies
+      .map((dw) => ({ dw, w: c.workouts.find((x) => x.name === dw.name) }))
+      .filter(({ dw, w }) => w && compareScheduled(w, dw).length);
+    const locked = stale.filter(({ dw }) => dw.status !== 'scheduled');
+    locked.forEach(({ dw }) => console.log(`    ${dw.date}  LEFT ALONE  "${dw.name}" is ${dw.status}, not scheduled`));
+    const toFix = stale.filter(({ dw }) => dw.status === 'scheduled');
+    console.log(`  calendar  : ${toFix.length} scheduled cop${toFix.length === 1 ? 'y' : 'ies'} differ from the table, ${commit ? 'updating' : 'would update'} them`);
+    if (commit && toFix.length) {
+      backup(c, 'scheduled-copies-before', toFix.map(({ dw }) => dw));
+      for (const { dw } of toFix) {
+        await am.post('/dailyWorkout/set', updateScheduledPayload(c.userID, dw, defs[dw.name]));
+        await sleep(200);
+        const back = ((await am.post('/dailyWorkout/get', { ids: [dw.id], unitWeight: 'kg' })).dailyWorkouts || [])[0];
+        const p = back ? compareScheduled(c.workouts.find((x) => x.name === dw.name), back) : ['entry is gone'];
+        if (p.length || back.id !== dw.id || back.workoutID !== defs[dw.name].id) {
+          return [`${dw.date} "${dw.name}" did not come back right after the edit, stopped here`, ...p];
+        }
+        console.log(`    ${dw.date}  updated   "${dw.name}" (entry ${dw.id}, read back and matches)`);
+      }
+    }
+    if (locked.length) return locked.map(({ dw }) => `${dw.date} "${dw.name}" differs but is ${dw.status}, so it was left alone`);
+  }
   if (!commit) return [];
 
   // Read it all back: each day holds each of its workouts exactly once, linked to the plan.
@@ -852,11 +942,13 @@ async function scheduleClient(c, defs, commit) {
 
 async function run() {
   const commit = process.argv.includes('--commit');
+  const update = process.argv.includes('--update');
   const only = process.argv.includes('--client') ? process.argv[process.argv.indexOf('--client') + 1] : null;
   const clients = only ? CLIENTS.filter((c) => c.key === only) : CLIENTS;
   if (!clients.length) throw new Error(`no client "${only}" (use ${CLIENTS.map((c) => c.key).join(', ')})`);
 
-  console.log(`${commit ? 'APPLYING' : 'DRY RUN'} - next blocks starting ${START}, then each client's training days.`);
+  console.log(`${commit ? 'APPLYING' : 'DRY RUN'} - next blocks starting ${START}, then each client's training days.` +
+    `${update ? ' --update: workouts already in Trainerize are changed to match.' : ''}`);
   clients.forEach(printClient);
 
   const tableProblems = checkTables();
@@ -873,8 +965,8 @@ async function run() {
   let failed = 0;
   for (const c of clients) {
     console.log(`\n--- ${c.name} (${c.userID})`);
-    const { problems: built, defs } = await buildClient(c, commit);
-    const p = built.length ? built : await scheduleClient(c, defs, commit);
+    const { problems: built, defs } = await buildClient(c, commit, update);
+    const p = built.length ? built : await scheduleClient(c, defs, commit, update);
     if (p.length) {
       failed += 1;
       console.log('  PROBLEMS:');
