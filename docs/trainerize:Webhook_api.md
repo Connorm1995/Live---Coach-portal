@@ -816,6 +816,11 @@ curl --request POST \
 
 gets a list of all training plans
 
+> **Note (observed against the live API, 17 Sep 2026):** a long range can fail with a misleading
+> `404 User not found`. A 56 day range starting a few days ahead failed for four clients, while
+> 28 and 41 day ranges from the same date worked, and a 126 day range in the past worked. Read
+> longer spans 28 days at a time. See docs/logic.md.
+
 ```bash
 curl --request POST \
      --url https://api.trainerize.com/v03/calendar/getList \

@@ -995,6 +995,16 @@ The constants are in millimetres, measured against rendered output, and are the 
 
 **Safety rules in the scripts:** Never schedule into the past (dates start from the later of the block start and today in Dublin). Skip any date that already holds a workout, so a re-run fills gaps and never doubles up. Refuse to add workouts to a plan that already holds different ones. Read everything back after writing and fail loudly on any mismatch.
 
+**Creating the plan as well (17 Sep 2026):** `build-blocks-2026-09-21.js` built the next block for Brian Caulfield, Martin Farrell, Micheál Mahon and Joe O'Brien, so it creates each plan itself rather than filling one Connor made. `/trainingPlan/add` takes `{userid, plan: {name, instruction, startDate, endDate, duration, durationType: 'week'}}`, which is exactly what the Trainerize web app's "new training phase" dialog sends (read from the web app bundles, `gt.spa` and `gt.modules` 8.37.0). The instruction set on create stuck on all four. The end date is start + weeks x 7 - 1, the way Trainerize stores a block (Gary Corley's 9 week block runs 31 Aug to 1 Nov). A new plan starting the day after the current one ends left the current plan's dates untouched. The web app edits a plan's name or instruction with `/trainingPlan/set` `{plan: {id, name | instruction}}`; the script falls back to that for the instruction, but it was never needed, so it is unverified.
+
+**Block instructions come from Gary Corley's block.** Connor named it as the correct wording. The script reads Gary's plan on every run and refuses to write if his text has changed since, so an edit to Gary's block is never silently ignored. Its one en dash (`3–4 RIR`) is written as a hyphen.
+
+**Read the calendar in pieces.** `/calendar/getList` returned `404 User not found` for a 56 day range starting 21 Sep 2026 (four days ahead), while 28 and 41 day ranges from the same start worked, and a 126 day range entirely in the past worked. Like the `/dailyWorkout/set` 404, the message has nothing to do with the user. The script reads 28 days at a time.
+
+**Training days come from Trainerize, not the portal.** Each client's days were picked by counting completed sessions per weekday in the Trainerize calendar. The portal's `client_workouts` copy is not reliable for this: for Martin Farrell it held 3 sessions between March and mid September 2026, where Trainerize shows about 20. That is the gap problem the (as yet uncommitted) `backfill-calendar-gaps.js` repairs. Where a client's days are spread out, the counts over the last 12 months decide, and ties go to the longer history.
+
+**Several workouts on one day.** Martin trains at home and picks between a longer and a shorter version of each day, so each training day holds the longer session, the shorter one and bomb proof back (as his previous block's calendar did). Each is its own `/dailyWorkout/set` call. The read back checks every day holds each of its workouts exactly once, linked to the plan by `detail.workoutID`, and nothing else from the block.
+
 ---
 
 ## Trainerize Auto Messages (July 2026)
